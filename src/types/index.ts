@@ -40,6 +40,7 @@ export interface Message {
 
 export interface GraphNode extends SimulationNodeDatum {
   id: string;
+  label?: string;
   group: number;
   rank: number;
 }
@@ -61,10 +62,13 @@ export interface SourceVersion {
   timestamp: string;
   changeSummary: string;
   tag?: string; // User defined tag
-  status?: 'local' | 'generated' | 'none'; // Version-level status
+  status?: 'local' | 'generated' | 'none' | 'uploaded'; // Version-level status
+  isOutdated?: boolean; // Whether this version is outdated (has newer local version)
 }
 
 import type { ChatLLMPlatform } from './capture';
+
+export type UploadStatus = 'idle' | 'uploading' | 'success' | 'failed';
 
 export interface DataSource {
   id: string;
@@ -72,12 +76,17 @@ export interface DataSource {
   url: string;
   type: 'web' | 'upload';
   platform?: ChatLLMPlatform | 'general' | 'demo'; // Platform identifier (ChatLLM platform, 'general' for non-ChatLLM pages, or 'demo' for mock data)
-  isUploaded: boolean; // Server sync status
+  isUploaded: boolean; // Server sync status (persistent)
+  uploadStatus?: UploadStatus; // Current upload status (temporary)
+  uploadProgress?: number; // 0-100
+  uploadError?: string; // Error message if failed
   lastSaved: string;
   versions: SourceVersion[];
   currentVersionId: string;
   ckgStatus: 'generated' | 'pending' | 'none';
   relevanceScore?: number; // For Smart Data ranking
+  isServerOnly?: boolean; // Mark as only existing on server (local record deleted)
+  serverUpdateTime?: string; // Server update time (if synced with server)
 }
 
 export interface HistoryItem {

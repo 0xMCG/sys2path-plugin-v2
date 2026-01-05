@@ -30,6 +30,12 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "exclude_matches": [
+        "*://accounts.google.com/*",
+        "*://github.com/login/*",
+        "*://twitter.com/i/oauth2/*",
+        "*://x.com/i/oauth2/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_start"
     }

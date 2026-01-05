@@ -1,4 +1,5 @@
 import type { GeneralPageContent } from '../../types/capture';
+import { generateMessageId } from '../../services/data-converter';
 
 /**
  * General Page Capture Module
@@ -20,30 +21,46 @@ export class GeneralPageCapture {
         return null;
       }
 
+      // Generate messageId at save time
+      const messageId = generateMessageId({
+        content,
+        timestamp: Date.now()
+      });
+
       const pageContent: GeneralPageContent = {
         id: this.generateId(url),
         url,
         title,
         content,
-        capturedAt: Date.now()
+        capturedAt: Date.now(),
+        messageId
       };
 
       // Send to background script for saving instead of direct storage call
       // Content scripts may not have direct access to chrome.storage.local
-      chrome.runtime.sendMessage({
-        type: 'SAVE_PAGE_CONTENT',
-        data: pageContent
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[CAPTURE] Failed to save page content:', chrome.runtime.lastError);
-        } else if (response?.success) {
-          console.log('[CAPTURE] Successfully saved page content:', pageContent.id);
-        } else {
-          console.error('[CAPTURE] Failed to save page content:', response?.error);
-        }
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'SAVE_PAGE_CONTENT',
+          data: pageContent
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('[CAPTURE] Failed to save page content:', chrome.runtime.lastError);
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response?.success) {
+            console.log('[CAPTURE] Successfully saved page content:', pageContent.id);
+            resolve(pageContent);
+          } else if (response?.message) {
+            // Duplicate content detected
+            console.log('[CAPTURE] Duplicate content:', response.message);
+            // Return pageContent with a flag to show message
+            (pageContent as any).__duplicateMessage = response.message;
+            resolve(pageContent);
+          } else {
+            console.error('[CAPTURE] Failed to save page content:', response?.error);
+            reject(new Error(response?.error || 'Unknown error'));
+          }
+        });
       });
-      
-      return pageContent;
     } catch (error) {
       console.error('[CAPTURE] Failed to capture page content:', error);
       return null;

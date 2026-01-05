@@ -71,13 +71,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case 'SAVE_CONVERSATION':
       StorageService.saveConversation(message.data)
-        .then(() => sendResponse({ success: true }))
+        .then(result => sendResponse({ success: result.saved, message: result.message }))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true; // Keep channel open for async response
 
     case 'SAVE_PAGE_CONTENT':
       StorageService.savePageContent(message.data)
-        .then(() => sendResponse({ success: true }))
+        .then(result => sendResponse({ success: result.saved, message: result.message }))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true; // Keep channel open for async response
 

@@ -1,6 +1,7 @@
 import { PlatformDetector } from '../../services/platform-detector';
 import type { ChatLLMConversation, ChatLLMMessage, ChatLLMPlatform } from '../../types/capture';
 import { getConversationData, initChatGPTTokenCapture } from './api-helpers';
+import { generateMessageId } from '../../services/data-converter';
 
 /**
  * ChatLLM Platform Capture Module
@@ -87,22 +88,37 @@ export class ChatLLMCapture {
         throw new Error('No messages found in conversation');
       }
 
+      // Generate messageId for each message at save time
+      conversation.messages = conversation.messages.map(msg => ({
+        ...msg,
+        messageId: msg.messageId || generateMessageId(msg)
+      }));
+
       // Send to background script for saving instead of direct storage call
       // Content scripts may not have direct access to chrome.storage.local
-      chrome.runtime.sendMessage({
-        type: 'SAVE_CONVERSATION',
-        data: conversation
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[CAPTURE] Failed to save conversation:', chrome.runtime.lastError);
-        } else if (response?.success) {
-          console.log('[CAPTURE] Successfully saved conversation:', conversation.id);
-        } else {
-          console.error('[CAPTURE] Failed to save conversation:', response?.error);
-        }
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'SAVE_CONVERSATION',
+          data: conversation
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('[CAPTURE] Failed to save conversation:', chrome.runtime.lastError);
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response?.success) {
+            console.log('[CAPTURE] Successfully saved conversation:', conversation.id);
+            resolve(conversation);
+          } else if (response?.message) {
+            // Duplicate content detected
+            console.log('[CAPTURE] Duplicate content:', response.message);
+            // Return conversation with a flag to show message
+            (conversation as any).__duplicateMessage = response.message;
+            resolve(conversation);
+          } else {
+            console.error('[CAPTURE] Failed to save conversation:', response?.error);
+            reject(new Error(response?.error || 'Unknown error'));
+          }
+        });
       });
-      
-      return conversation;
     } catch (error) {
       console.error('[CAPTURE] Failed to capture conversation:', error);
       throw error;

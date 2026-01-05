@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OAuth Callback</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f5f5f5;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      color: #e74c3c;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <p>Processing login...</p>
+    <p class="error" id="error" style="display: none;"></p>
+  </div>
+  <script type="module">
+    import { apiService } from './services/api.ts';
+    
+    async function handleCallback() {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const provider = urlParams.get('provider');
+        
+        // provider 现在存储在 session 中，后端会自动从 session 读取
+        // 但为了向后兼容，仍然可以传递 provider 参数
+        // 调用后端callback接口获取token（provider 会从 session 中读取）
+        const callbackUrl = `http://localhost:8000/api/v1/auth/callback${provider ? `?provider=${provider}` : ''}`;
+        const response = await fetch(callbackUrl, {
+          method: 'GET',
+          credentials: 'include',  // 重要：包含 cookies，以便后端读取 session
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(errorData.detail || 'OAuth callback failed');
+        }
+        
+        const data = await response.json();
+        
+        // 发送消息给父窗口
+        if (window.opener) {
+          window.opener.postMessage(
+            {
+              type: 'OAUTH_CALLBACK',
+              access_token: data.access_token,
+              user: data.user,
+            },
+            window.location.origin
+          );
+          
+          // 关闭popup窗口
+          window.close();
+        } else {
+          throw new Error('No parent window found');
+        }
+      } catch (error) {
+        console.error('[AUTH] OAuth callback error:', error);
+        const errorEl = document.getElementById('error');
+        if (errorEl) {
+          errorEl.textContent = error instanceof Error ? error.message : 'Unknown error occurred';
+          errorEl.style.display = 'block';
+        }
+        
+        // 发送错误消息给父窗口
+        if (window.opener) {
+          window.opener.postMessage(
+            {
+              type: 'OAUTH_ERROR',
+              error: error instanceof Error ? error.message : 'Unknown error',
+            },
+            window.location.origin
+          );
+        }
+      }
+    }
+    
+    handleCallback();
+  </script>
+</body>
+</html>
+

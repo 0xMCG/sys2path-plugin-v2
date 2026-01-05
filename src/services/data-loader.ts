@@ -21,7 +21,11 @@ function getBaseId(versionedId: string): string {
 /**
  * Convert a single conversation to a version entry
  */
-function conversationToVersion(conversation: ChatLLMConversation, versionTags?: Record<string, string>): SourceVersion {
+function conversationToVersion(
+  conversation: ChatLLMConversation, 
+  versionStatuses?: Record<string, 'local' | 'generated' | 'none' | 'uploaded'>,
+  isOutdated?: boolean
+): SourceVersion {
   const capturedDate = new Date(conversation.capturedAt);
   const timestamp = capturedDate.toLocaleString('en-US', {
     month: 'short',
@@ -34,15 +38,19 @@ function conversationToVersion(conversation: ChatLLMConversation, versionTags?: 
     id: conversation.id,
     timestamp,
     changeSummary: `Captured ${conversation.messages.length} messages`,
-    status: 'local', // Default status for new versions
-    tag: versionTags?.[conversation.id] // Load tag from storage
+    status: versionStatuses?.[conversation.id] || (conversation.isUploaded ? 'uploaded' : 'local'),
+    isOutdated: isOutdated || false
   };
 }
 
 /**
  * Convert a single page content to a version entry
  */
-function pageContentToVersion(content: GeneralPageContent, versionTags?: Record<string, string>): SourceVersion {
+function pageContentToVersion(
+  content: GeneralPageContent, 
+  versionStatuses?: Record<string, 'local' | 'generated' | 'none' | 'uploaded'>,
+  isOutdated?: boolean
+): SourceVersion {
   const capturedDate = new Date(content.capturedAt);
   const timestamp = capturedDate.toLocaleString('en-US', {
     month: 'short',
@@ -55,15 +63,20 @@ function pageContentToVersion(content: GeneralPageContent, versionTags?: Record<
     id: content.id,
     timestamp,
     changeSummary: `Captured ${content.content.length} characters`,
-    status: 'local', // Default status for new versions
-    tag: versionTags?.[content.id] // Load tag from storage
+    status: versionStatuses?.[content.id] || (content.isUploaded ? 'uploaded' : 'local'),
+    isOutdated: isOutdated || false
   };
 }
 
 /**
  * Convert multiple conversations with same URL to a single DataSource with versions
+ * Limits to maximum 2 versions: newest uploaded (if exists) + newest local
  */
-export function convertConversationsToDataSource(conversations: ChatLLMConversation[], versionTags?: Record<string, string>): DataSource | null {
+export function convertConversationsToDataSource(
+  conversations: ChatLLMConversation[], 
+  versionStatuses?: Record<string, 'local' | 'generated' | 'none' | 'uploaded'>,
+  serverUpdateTime?: string
+): DataSource | null {
   if (conversations.length === 0) return null;
 
   // Sort by capturedAt (newest first)
@@ -73,8 +86,36 @@ export function convertConversationsToDataSource(conversations: ChatLLMConversat
   // Get base ID from the first conversation
   const baseId = getBaseId(latest.id);
 
-  // Create versions from all conversations
-  const versions: SourceVersion[] = sorted.map(conv => conversationToVersion(conv, versionTags));
+  // Separate uploaded and local versions
+  const uploadedVersions = sorted.filter(c => c.isUploaded === true);
+  const localVersions = sorted.filter(c => !c.isUploaded);
+  
+  // Get newest uploaded version (if exists)
+  const newestUploaded = uploadedVersions.length > 0
+    ? uploadedVersions.reduce((newest, current) => 
+        current.capturedAt > newest.capturedAt ? current : newest
+      )
+    : null;
+  
+  // Get newest local version
+  const newestLocal = localVersions.length > 0
+    ? localVersions.reduce((newest, current) => 
+        current.capturedAt > newest.capturedAt ? current : newest
+      )
+    : null;
+  
+  // Build versions array: max 2 versions (uploaded first, then local)
+  const versions: SourceVersion[] = [];
+  
+  if (newestUploaded) {
+    versions.push(conversationToVersion(newestUploaded, versionStatuses, false));
+  }
+  
+  if (newestLocal) {
+    // Mark local version as pending sync if there's an uploaded version
+    const isOutdated = newestUploaded !== null && newestLocal.id !== newestUploaded.id;
+    versions.push(conversationToVersion(newestLocal, versionStatuses, isOutdated));
+  }
 
   const latestDate = new Date(latest.capturedAt);
   const lastSaved = latestDate.toLocaleString('en-US', {
@@ -90,19 +131,25 @@ export function convertConversationsToDataSource(conversations: ChatLLMConversat
     url: latest.url,
     type: 'web',
     platform: latest.platform, // Set platform from conversation
-    isUploaded: false,
+    isUploaded: newestUploaded !== null,
     lastSaved,
     versions,
-    currentVersionId: versions[0].id, // Latest version
+    currentVersionId: versions[0]?.id || latest.id, // Latest version
     ckgStatus: 'none',
-    relevanceScore: undefined
+    relevanceScore: undefined,
+    serverUpdateTime: serverUpdateTime // Include serverUpdateTime if provided
   };
 }
 
 /**
  * Convert multiple page contents with same URL to a single DataSource with versions
+ * Limits to maximum 2 versions: newest uploaded (if exists) + newest local
  */
-export function convertPageContentsToDataSource(contents: GeneralPageContent[], versionTags?: Record<string, string>): DataSource | null {
+export function convertPageContentsToDataSource(
+  contents: GeneralPageContent[], 
+  versionStatuses?: Record<string, 'local' | 'generated' | 'none' | 'uploaded'>,
+  serverUpdateTime?: string
+): DataSource | null {
   if (contents.length === 0) return null;
 
   // Sort by capturedAt (newest first)
@@ -112,8 +159,36 @@ export function convertPageContentsToDataSource(contents: GeneralPageContent[], 
   // Get base ID from the first content
   const baseId = getBaseId(latest.id);
 
-  // Create versions from all contents
-  const versions: SourceVersion[] = sorted.map(content => pageContentToVersion(content, versionTags));
+  // Separate uploaded and local versions
+  const uploadedVersions = sorted.filter(c => c.isUploaded === true);
+  const localVersions = sorted.filter(c => !c.isUploaded);
+  
+  // Get newest uploaded version (if exists)
+  const newestUploaded = uploadedVersions.length > 0
+    ? uploadedVersions.reduce((newest, current) => 
+        current.capturedAt > newest.capturedAt ? current : newest
+      )
+    : null;
+  
+  // Get newest local version
+  const newestLocal = localVersions.length > 0
+    ? localVersions.reduce((newest, current) => 
+        current.capturedAt > newest.capturedAt ? current : newest
+      )
+    : null;
+  
+  // Build versions array: max 2 versions (uploaded first, then local)
+  const versions: SourceVersion[] = [];
+  
+  if (newestUploaded) {
+    versions.push(pageContentToVersion(newestUploaded, versionStatuses, false));
+  }
+  
+  if (newestLocal) {
+    // Mark local version as pending sync if there's an uploaded version
+    const isOutdated = newestUploaded !== null && newestLocal.id !== newestUploaded.id;
+    versions.push(pageContentToVersion(newestLocal, versionStatuses, isOutdated));
+  }
 
   const latestDate = new Date(latest.capturedAt);
   const lastSaved = latestDate.toLocaleString('en-US', {
@@ -129,12 +204,13 @@ export function convertPageContentsToDataSource(contents: GeneralPageContent[], 
     url: latest.url,
     type: 'web',
     platform: 'general', // General page content (not ChatLLM)
-    isUploaded: false,
+    isUploaded: newestUploaded !== null,
     lastSaved,
     versions,
-    currentVersionId: versions[0].id, // Latest version
+    currentVersionId: versions[0]?.id || latest.id, // Latest version
     ckgStatus: 'none',
-    relevanceScore: undefined
+    relevanceScore: undefined,
+    serverUpdateTime: serverUpdateTime // Include serverUpdateTime if provided
   };
 }
 
@@ -179,9 +255,15 @@ export async function loadDataSources(): Promise<DataSource[]> {
       pageContentsCount: response.pageContents?.length || 0
     });
     
-    // Load version tags
-    const tagsResult = await chrome.storage.local.get('sys2path_version_tags');
-    const versionTags: Record<string, string> = (tagsResult.sys2path_version_tags as Record<string, string>) || {};
+    // Load version statuses
+    const statusResult = await chrome.storage.local.get('sys2path_version_status');
+    const versionStatuses: Record<string, 'local' | 'generated' | 'none' | 'uploaded'> = 
+      (statusResult.sys2path_version_status as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
+    
+    // Load server update times
+    const timesResult = await chrome.storage.local.get('sys2path_server_update_times');
+    const serverUpdateTimes: Record<string, string> = 
+      (timesResult.sys2path_server_update_times as Record<string, string>) || {};
     
     const dataSources: DataSource[] = [];
     
@@ -206,7 +288,10 @@ export async function loadDataSources(): Promise<DataSource[]> {
       // Convert each group to a DataSource with versions
       for (const [_url, convs] of conversationsByUrl.entries()) {
         try {
-          const dataSource = convertConversationsToDataSource(convs, versionTags);
+          // Get baseId to look up serverUpdateTime
+          const baseId = getBaseId(convs[0]?.id || '');
+          const serverUpdateTime = serverUpdateTimes[baseId];
+          const dataSource = convertConversationsToDataSource(convs, versionStatuses, serverUpdateTime);
           if (dataSource) {
             dataSources.push(dataSource);
           }
@@ -240,7 +325,10 @@ export async function loadDataSources(): Promise<DataSource[]> {
       // Convert each group to a DataSource with versions
       for (const [_url, contents] of contentsByUrl.entries()) {
         try {
-          const dataSource = convertPageContentsToDataSource(contents, versionTags);
+          // Get baseId to look up serverUpdateTime
+          const baseId = getBaseId(contents[0]?.id || '');
+          const serverUpdateTime = serverUpdateTimes[baseId];
+          const dataSource = convertPageContentsToDataSource(contents, versionStatuses, serverUpdateTime);
           if (dataSource) {
             dataSources.push(dataSource);
           }

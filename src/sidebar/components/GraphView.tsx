@@ -1,19 +1,48 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphData } from '../../types';
+import type { MVGResponse } from '../../types/api';
 
 interface GraphViewProps {
-  data: GraphData;
+  data?: GraphData;
+  mvgData?: MVGResponse;
   activeNodeId?: string | null;
   onNodeClick: (nodeId: string) => void;
   width?: number;
   height?: number;
 }
 
-const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, width = 600, height = 400 }) => {
+const GraphView: React.FC<GraphViewProps> = ({ data, mvgData, activeNodeId, onNodeClick, width = 600, height = 400 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [internalActiveNode, setInternalActiveNode] = useState<string | null>(null);
   const [edgePopup, setEdgePopup] = useState<{ x: number; y: number; content: string } | null>(null);
+
+  // Convert MVG data to GraphData format
+  const graphData = useMemo<GraphData>(() => {
+    if (mvgData) {
+      // Convert MVG nodes to D3 nodes
+      const d3Nodes = mvgData.nodes.map(node => ({
+        id: node.id,
+        label: node.label,
+        rank: node.value,
+        group: 1,
+      }));
+
+      // Convert MVG edges to D3 edges
+      const d3Edges = mvgData.edges.map(edge => ({
+        source: edge.from_node,
+        target: edge.to_node,
+        value: edge.chunks.length,
+        chunks: edge.chunks,
+        summary: `Connected via ${edge.chunks.length} chunk(s)`,
+      }));
+
+      return { nodes: d3Nodes, links: d3Edges };
+    }
+    
+    // Fallback to provided data or empty graph
+    return data || { nodes: [], links: [] };
+  }, [mvgData, data]);
 
   useEffect(() => {
     if (activeNodeId !== undefined) {
@@ -22,15 +51,15 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
   }, [activeNodeId]);
 
   useEffect(() => {
-    if (!svgRef.current || !data.nodes.length) return;
+    if (!svgRef.current || !graphData.nodes.length) return;
 
     d3.select(svgRef.current).selectAll("*").remove();
 
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height]);
 
-    const simulation = d3.forceSimulation(data.nodes)
-      .force("link", d3.forceLink(data.links).id((d: any) => d.id).distance(100))
+    const simulation = d3.forceSimulation(graphData.nodes)
+      .force("link", d3.forceLink(graphData.links).id((d: any) => d.id).distance(100))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collide", d3.forceCollide().radius(30));
@@ -39,7 +68,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
     
     const linkHitArea = linkGroup
       .selectAll(".link-hit")
-      .data(data.links)
+      .data(graphData.links)
       .join("line")
       .attr("stroke", "transparent")
       .attr("stroke-width", 10)
@@ -54,7 +83,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
 
     const link = linkGroup
       .selectAll(".link-visible")
-      .data(data.links)
+      .data(graphData.links)
       .join("line")
       .attr("stroke", "#94a3b8")
       .attr("stroke-opacity", 0.6)
@@ -63,7 +92,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
 
     const node = svg.append("g")
       .selectAll("circle")
-      .data(data.nodes)
+      .data(graphData.nodes)
       .join("circle")
       .attr("r", (d) => 5 + (d.rank * 15))
       .attr("fill", (d) => {
@@ -83,9 +112,9 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
 
     const label = svg.append("g")
       .selectAll("text")
-      .data(data.nodes)
+      .data(graphData.nodes)
       .join("text")
-      .text(d => d.id)
+      .text(d => d.label || d.id)
       .attr("font-size", "10px")
       .attr("font-family", "sans-serif")
       .attr("fill", "#1e293b")
@@ -132,7 +161,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
     return () => {
       simulation.stop();
     };
-  }, [data, width, height, internalActiveNode, onNodeClick]);
+  }, [graphData, width, height, internalActiveNode, onNodeClick]);
 
   function drag(simulation: d3.Simulation<any, undefined>) {
     function dragstarted(event: any) {
@@ -175,7 +204,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
       <div className="absolute top-2 right-2 bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-md p-2 max-h-48 overflow-y-auto w-40 z-10 transition-opacity opacity-50 hover:opacity-100">
         <h4 className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Top Entities</h4>
         <ul className="space-y-1">
-          {[...data.nodes].sort((a,b) => b.rank - a.rank).map(node => (
+          {[...graphData.nodes].sort((a,b) => b.rank - a.rank).map(node => (
              <li 
                key={node.id} 
                onClick={(e) => {
@@ -189,7 +218,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, activeNodeId, onNodeClick, 
                  : 'border-transparent hover:bg-slate-100 text-slate-700'
                }`}
              >
-               <span className="truncate">{node.id}</span>
+               <span className="truncate">{node.label || node.id}</span>
                <span className="text-slate-400 font-mono text-[10px]">{(node.rank * 10).toFixed(1)}</span>
              </li>
           ))}

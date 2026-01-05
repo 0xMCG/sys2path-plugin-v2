@@ -17,19 +17,25 @@ let generalCapture: GeneralPageCapture | null = null;
 console.log('[CONTENT] Content script loaded');
 
 // Initialize capture based on platform (but don't auto-capture)
+// This function can be safely called multiple times to re-initialize capture
+// for the current page (e.g., when user navigates to a different chat session)
 function initCapture(): void {
   const platform = PlatformDetector.detectPlatform();
   
   if (platform) {
-    // ChatLLM platform
+    // ChatLLM platform - re-initialize to ensure we use current page info
     console.log('[CONTENT] Initializing ChatLLM capture for:', platform);
     chatLLMCapture = new ChatLLMCapture();
     chatLLMCapture.init();
+    // Clear general capture if it was set before
+    generalCapture = null;
     // Don't auto-capture - wait for user to click save button
   } else {
-    // General page
+    // General page - re-initialize to ensure we use current page info
     console.log('[CONTENT] Initializing general page capture');
     generalCapture = new GeneralPageCapture();
+    // Clear chatLLM capture if it was set before
+    chatLLMCapture = null;
     // Don't auto-capture - wait for user to click save button
   }
 }
@@ -98,6 +104,10 @@ function toggleSidebar(): void {
 async function handleCapture(): Promise<void> {
   console.log('[CONTENT] Capture triggered by user');
   
+  // Re-initialize capture module to ensure we use current page information
+  // This is important when user navigates to a different chat session or switches tabs
+  initCapture();
+  
   // Set loading state
   updateOverlayWidgetState('loading');
   
@@ -116,16 +126,38 @@ async function handleCapture(): Promise<void> {
       throw new Error('Failed to capture data');
     }
     
-    // Set success state
-    updateOverlayWidgetState('success');
-    
-    // Notify sidebar to refresh data
-    const iframe = document.getElementById('sys2path-sidebar-iframe') as HTMLIFrameElement;
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({
-        type: 'DATA_CAPTURED',
-        data: capturedData
-      }, '*');
+    // Check for duplicate message
+    const duplicateMessage = (capturedData as any).__duplicateMessage;
+    if (duplicateMessage) {
+      // Show duplicate message to user (non-interrupting)
+      console.log('[CONTENT] Duplicate content detected:', duplicateMessage);
+      // Set success state (duplicate is still a successful operation, just no new data)
+      updateOverlayWidgetState('success');
+      // Still notify sidebar, but with duplicate flag
+      const iframe = document.getElementById('sys2path-sidebar-iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'DATA_CAPTURED',
+          data: capturedData,
+          duplicateMessage: duplicateMessage
+        }, '*');
+      }
+      // Reset to idle state after a delay
+      setTimeout(() => {
+        updateOverlayWidgetState('idle');
+      }, 2000);
+    } else {
+      // Set success state
+      updateOverlayWidgetState('success');
+      
+      // Notify sidebar to refresh data
+      const iframe = document.getElementById('sys2path-sidebar-iframe') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'DATA_CAPTURED',
+          data: capturedData
+        }, '*');
+      }
     }
     
     // Also notify background to refresh
