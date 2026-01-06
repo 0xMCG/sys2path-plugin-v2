@@ -11,12 +11,12 @@ let currentState: WidgetState = 'idle';
 /**
  * Inject overlay widget (FAB button)
  */
-export function injectOverlayWidget(onClick: () => void, isSidebarOpen: boolean = false): void {
+export function injectOverlayWidget(onClick: () => void, isSidebarOpen: boolean = false, sidebarWidth: number = 450): void {
   if (overlayWidgetInjected) {
     // Update position if sidebar state changed
     const widget = document.getElementById('sys2path-overlay-widget');
     if (widget) {
-      widget.style.right = isSidebarOpen ? '474px' : '24px';
+      widget.style.right = isSidebarOpen ? `${sidebarWidth + 24}px` : '24px';
     }
     return;
   }
@@ -26,7 +26,7 @@ export function injectOverlayWidget(onClick: () => void, isSidebarOpen: boolean 
   widget.style.cssText = `
     position: fixed;
     bottom: 24px;
-    right: ${isSidebarOpen ? '474px' : '24px'};
+    right: ${isSidebarOpen ? `${sidebarWidth + 24}px` : '24px'};
     z-index: 999998;
     width: 56px;
     height: 56px;
@@ -164,17 +164,17 @@ export function updateOverlayWidgetState(state: WidgetState): void {
 /**
  * Update overlay widget position
  */
-export function updateOverlayWidgetPosition(isSidebarOpen: boolean): void {
+export function updateOverlayWidgetPosition(isSidebarOpen: boolean, sidebarWidth: number = 450): void {
   const widget = document.getElementById('sys2path-overlay-widget');
   if (widget) {
-    widget.style.right = isSidebarOpen ? '474px' : '24px';
+    widget.style.right = isSidebarOpen ? `${sidebarWidth + 24}px` : '24px';
   }
 }
 
 /**
  * Inject sidebar toggle button
  */
-export function injectToggleButton(onClick: () => void, isSidebarOpen: boolean): void {
+export function injectToggleButton(onClick: () => void, isSidebarOpen: boolean, sidebarWidth: number = 450): void {
   // Remove existing button if any
   const existing = document.getElementById('sys2path-toggle-button');
   if (existing) {
@@ -186,7 +186,7 @@ export function injectToggleButton(onClick: () => void, isSidebarOpen: boolean):
   button.style.cssText = `
     position: fixed;
     top: 50%;
-    right: ${isSidebarOpen ? '450px' : '0px'};
+    right: ${isSidebarOpen ? `${sidebarWidth}px` : '0px'};
     transform: translateY(-50%);
     z-index: 999999;
     width: 32px;
@@ -236,10 +236,10 @@ export function injectToggleButton(onClick: () => void, isSidebarOpen: boolean):
 /**
  * Update toggle button position
  */
-export function updateToggleButton(isSidebarOpen: boolean): void {
+export function updateToggleButton(isSidebarOpen: boolean, sidebarWidth: number = 450): void {
   const button = document.getElementById('sys2path-toggle-button');
   if (button) {
-    button.style.right = isSidebarOpen ? '450px' : '0px';
+    button.style.right = isSidebarOpen ? `${sidebarWidth}px` : '0px';
     button.title = isSidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar';
     
     // Update icon

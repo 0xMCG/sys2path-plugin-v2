@@ -13,6 +13,8 @@ let sidebarContainer: HTMLElement | null = null;
 let isSidebarOpen = false;
 let chatLLMCapture: ChatLLMCapture | null = null;
 let generalCapture: GeneralPageCapture | null = null;
+let sidebarWidth = 450; // Default width in pixels
+let isResizing = false;
 
 console.log('[CONTENT] Content script loaded');
 
@@ -40,9 +42,32 @@ function initCapture(): void {
   }
 }
 
+// Load sidebar width from storage
+async function loadSidebarWidth(): Promise<number> {
+  try {
+    const result = await chrome.storage.local.get('sidebarWidth');
+    return (typeof result.sidebarWidth === 'number' ? result.sidebarWidth : 450);
+  } catch (error) {
+    console.error('[CONTENT] Failed to load sidebar width:', error);
+    return 450;
+  }
+}
+
+// Save sidebar width to storage
+async function saveSidebarWidth(width: number): Promise<void> {
+  try {
+    await chrome.storage.local.set({ sidebarWidth: width });
+  } catch (error) {
+    console.error('[CONTENT] Failed to save sidebar width:', error);
+  }
+}
+
 // Inject sidebar
-function injectSidebar(): void {
+async function injectSidebar(): Promise<void> {
   if (sidebarInjected) return;
+
+  // Load saved width
+  sidebarWidth = await loadSidebarWidth();
 
   // Create sidebar container
   sidebarContainer = document.createElement('div');
@@ -51,7 +76,7 @@ function injectSidebar(): void {
     position: fixed;
     top: 0;
     right: 0;
-    width: 450px;
+    width: ${sidebarWidth}px;
     height: 100vh;
     z-index: 999999;
     background: white;
@@ -59,6 +84,78 @@ function injectSidebar(): void {
     transform: translateX(100%);
     transition: transform 0.3s ease-in-out;
   `;
+
+  // Create resize handle
+  const resizeHandle = document.createElement('div');
+  resizeHandle.id = 'sys2path-sidebar-resize-handle';
+  resizeHandle.style.cssText = `
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 1000000;
+    transition: background 0.2s ease;
+  `;
+
+  resizeHandle.addEventListener('mouseenter', () => {
+    if (!isResizing) {
+      resizeHandle.style.background = 'rgba(59, 130, 246, 0.5)';
+    }
+  });
+
+  resizeHandle.addEventListener('mouseleave', () => {
+    if (!isResizing) {
+      resizeHandle.style.background = 'transparent';
+    }
+  });
+
+  // Resize handlers
+  const handleResizeStart = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+    resizeHandle.style.background = 'rgba(59, 130, 246, 0.8)';
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  };
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!isResizing || !sidebarContainer) return;
+    
+    const newWidth = window.innerWidth - e.clientX;
+    const minWidth = 300;
+    const maxWidth = 800;
+    const clampedWidth = Math.min(Math.max(newWidth, minWidth), maxWidth);
+    
+    sidebarWidth = clampedWidth;
+    sidebarContainer.style.width = `${sidebarWidth}px`;
+    sidebarContainer.style.transition = 'none'; // Disable transition during resize
+    
+    // Update toggle button and overlay widget positions
+    updateToggleButton(isSidebarOpen, sidebarWidth);
+    updateOverlayWidgetPosition(isSidebarOpen, sidebarWidth);
+  };
+
+  const handleResizeEnd = () => {
+    if (!isResizing) return;
+    
+    isResizing = false;
+    resizeHandle.style.background = 'transparent';
+    if (sidebarContainer) {
+      sidebarContainer.style.transition = 'transform 0.3s ease-in-out';
+    }
+    
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+    
+    // Save width to storage
+    saveSidebarWidth(sidebarWidth);
+  };
+
+  resizeHandle.addEventListener('mousedown', handleResizeStart);
 
   // Create iframe for sidebar
   const iframe = document.createElement('iframe');
@@ -70,33 +167,35 @@ function injectSidebar(): void {
     border: none;
   `;
 
+  sidebarContainer.appendChild(resizeHandle);
   sidebarContainer.appendChild(iframe);
   document.body.appendChild(sidebarContainer);
   sidebarInjected = true;
 
-  console.log('[CONTENT] Sidebar injected');
+  console.log('[CONTENT] Sidebar injected with width:', sidebarWidth);
 }
 
 // Toggle sidebar
 function toggleSidebar(): void {
   if (!sidebarContainer) {
-    injectSidebar();
-    // Wait for sidebar to be injected, then open it
-    setTimeout(() => {
-      if (sidebarContainer) {
-        sidebarContainer.style.transform = 'translateX(0px)';
-        isSidebarOpen = true;
-        updateToggleButton(true);
-        updateOverlayWidgetPosition(true);
-      }
-    }, 100);
+    injectSidebar().then(() => {
+      // Wait for sidebar to be injected, then open it
+      setTimeout(() => {
+        if (sidebarContainer) {
+          sidebarContainer.style.transform = 'translateX(0px)';
+          isSidebarOpen = true;
+          updateToggleButton(true, sidebarWidth);
+          updateOverlayWidgetPosition(true, sidebarWidth);
+        }
+      }, 100);
+    });
     return;
   }
 
   isSidebarOpen = !isSidebarOpen;
   sidebarContainer.style.transform = isSidebarOpen ? 'translateX(0px)' : 'translateX(100%)';
-  updateToggleButton(isSidebarOpen);
-  updateOverlayWidgetPosition(isSidebarOpen);
+  updateToggleButton(isSidebarOpen, sidebarWidth);
+  updateOverlayWidgetPosition(isSidebarOpen, sidebarWidth);
   console.log('[CONTENT] Sidebar toggled:', isSidebarOpen ? 'open' : 'closed');
 }
 
@@ -201,19 +300,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 // Initialize UI and capture
-function initializeUI(): void {
+async function initializeUI(): Promise<void> {
+  // Load saved width
+  sidebarWidth = await loadSidebarWidth();
+
   // Inject overlay widget - only capture, don't toggle sidebar
   injectOverlayWidget(() => {
     console.log('[CONTENT] Overlay widget clicked - capturing data');
     handleCapture();
     // Don't automatically open sidebar - let user open it manually if needed
-  }, false);
+  }, false, sidebarWidth);
 
   // Inject toggle button
   injectToggleButton(() => {
     console.log('[CONTENT] Toggle button clicked');
     toggleSidebar();
-  }, false);
+  }, false, sidebarWidth);
 
   // Initialize capture
   initCapture();

@@ -1,17 +1,15 @@
 // 结构化输出组件
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 
 interface StructuredOutputProps {
   data: string; // JSON string
-  onExpand?: () => void;
 }
 
 export const StructuredOutput: React.FC<StructuredOutputProps> = ({
   data,
-  onExpand,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   let parsedData: any = null;
   try {
@@ -20,9 +18,16 @@ export const StructuredOutput: React.FC<StructuredOutputProps> = ({
     console.error('[STRUCTURED_OUTPUT] Failed to parse JSON:', error);
   }
 
-  const toggleExpand = () => {
-    setIsExpanded(!isExpanded);
-    onExpand?.();
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(data);
+      setCopySuccess(true);
+      setTimeout(() => {
+        setCopySuccess(false);
+      }, 2000);
+    } catch (error) {
+      console.error('[STRUCTURED_OUTPUT] Failed to copy:', error);
+    }
   };
 
   if (!parsedData) {
@@ -84,25 +89,30 @@ export const StructuredOutput: React.FC<StructuredOutputProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full border border-gray-200 rounded-md bg-white">
-      <div
-        className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-        onClick={toggleExpand}
-      >
-        <h3 className="text-sm font-semibold text-gray-700">
-          Structured Output
-        </h3>
-        {isExpanded ? (
-          <ChevronUp size={16} className="text-gray-500" />
-        ) : (
-          <ChevronDown size={16} className="text-gray-500" />
+    <div className="flex flex-col h-full bg-white relative">
+      {/* Copy button in top right corner */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+        {copySuccess && (
+          <span className="text-xs text-green-600 font-medium animate-fade-in">
+            复制成功
+          </span>
         )}
+        <button
+          onClick={handleCopy}
+          className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+          title="Copy to clipboard"
+        >
+          {copySuccess ? (
+            <Check size={16} className="text-green-600" />
+          ) : (
+            <Copy size={16} />
+          )}
+        </button>
       </div>
-      {isExpanded && (
-        <div className="flex-1 overflow-y-auto p-4 text-sm font-mono">
-          {renderValue(parsedData)}
-        </div>
-      )}
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto p-4 text-sm font-mono pt-12">
+        {renderValue(parsedData)}
+      </div>
     </div>
   );
 };

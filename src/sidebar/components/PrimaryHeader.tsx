@@ -4,8 +4,8 @@ import { AuthButton } from './AuthButton';
 import type { AuthState } from '../../services/auth-service';
 
 interface PrimaryHeaderProps {
-  activeTab: 'chat' | 'data';
-  onTabChange: (tab: 'chat' | 'data') => void;
+  activeTab: 'chat' | 'data' | 'history';
+  onTabChange: (tab: 'chat' | 'data' | 'history') => void;
   onAuthChange: (authState: AuthState) => void;
 }
 
@@ -28,6 +28,13 @@ export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({
     onTabChange('data');
   }, [onTabChange]);
 
+  const handleHistoryClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[WORKBENCH] History tab clicked');
+    onTabChange('history');
+  }, [onTabChange]);
+
   return (
     <div className="h-14 border-b border-slate-200 flex items-center justify-between px-4 bg-white shrink-0 z-50 relative" style={{ pointerEvents: 'auto' }}>
        <div className="flex items-center gap-4" style={{ pointerEvents: 'auto' }}>
@@ -47,6 +54,14 @@ export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-all cursor-pointer ${activeTab === 'data' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
              >
                 Data
+             </button>
+             <button 
+                onClick={handleHistoryClick}
+                type="button"
+                style={{ pointerEvents: 'auto' }}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-all cursor-pointer ${activeTab === 'history' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+             >
+                History
              </button>
           </div>
        </div>

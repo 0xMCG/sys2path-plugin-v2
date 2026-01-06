@@ -1,9 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { 
-  Network, Database, History, 
+  Network, Database,
   Send, X,
   Trash2, FileText, Globe, Upload, ChevronDown,
-  Eye, Cloud, Copy, Search, ArrowUp, ArrowDown,
+  Eye, Cloud, Search, ArrowUp, ArrowDown,
   Loader2, CheckCircle2, XCircle
 } from 'lucide-react';
 import { loadDataSources } from '../../services/data-loader';
@@ -140,8 +140,8 @@ ChatView.displayName = 'ChatView';
 export const Workbench: React.FC<WorkbenchProps> = () => {
   // --- Layout State ---
   const [secondaryHeight, setSecondaryHeight] = useState(0); // Default: collapsed 
-  const [activeSecondaryTab, setActiveSecondaryTab] = useState<'mvg' | 'data' | 'history'>('mvg');
-  const [activePrimaryTab, setActivePrimaryTab] = useState<'chat' | 'data'>('chat');
+  const [activeSecondaryTab, setActiveSecondaryTab] = useState<'mvg' | 'data' | 'resources'>('mvg');
+  const [activePrimaryTab, setActivePrimaryTab] = useState<'chat' | 'data' | 'history'>('chat');
   
   // --- Auth State ---
   const [authState, setAuthState] = useState<AuthState>({
@@ -176,9 +176,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Smart Data Selection
-  const [selectedSmartIds, setSelectedSmartIds] = useState<Set<string>>(new Set());
   
   // Upload status management
   const [uploadStatuses, setUploadStatuses] = useState<Map<string, {
@@ -471,7 +468,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     document.removeEventListener('mouseup', handleResizeEnd);
   };
 
-  const switchSecondaryTab = (tab: 'mvg' | 'data' | 'history') => {
+  const switchSecondaryTab = (tab: 'mvg' | 'data' | 'resources') => {
       if (secondaryHeight <= 0) setSecondaryHeight(50);
       setActiveSecondaryTab(tab);
   };
@@ -580,7 +577,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   }, [inputText, sendMessage]);
   
   // 使用 ref 跟踪上一次的 tab，只在从非 chat 切换到 chat 时聚焦
-  const prevTabRef = useRef<'chat' | 'data'>(activePrimaryTab);
+  const prevTabRef = useRef<'chat' | 'data' | 'history'>(activePrimaryTab);
   const prevMessagesLengthRef = useRef<number>(messages.length);
   const hasFocusedRef = useRef(false);
   
@@ -682,12 +679,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
      // Entity selection removed - no mock data
   };
 
-  // Smart Data -> Data Tab Nav
-  const handleSmartSourceClick = (dsId: string) => {
-      setActivePrimaryTab('data');
-      setHighlightedDataId(dsId);
-  };
-
   // Selection Helpers
   const toggleDataSelection = (id: string) => {
       const newSet = new Set(selectedDataIds);
@@ -742,20 +733,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       console.error('[WORKBENCH] Failed to batch delete data sources:', error);
       alert('批量删除失败，请重试');
     }
-  };
-
-
-  const toggleSmartSelection = (id: string) => {
-      const newSet = new Set(selectedSmartIds);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      setSelectedSmartIds(newSet);
-  };
-
-  const copySmartSelection = () => {
-      const count = selectedSmartIds.size;
-      alert(`Copied ${count} items to clipboard!`);
-      setSelectedSmartIds(new Set());
   };
 
   // Render conversation preview with diff highlighting
@@ -946,7 +923,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
 
   // --- Handlers ---
   
-  const handleTabChange = useCallback((tab: 'chat' | 'data') => {
+  const handleTabChange = useCallback((tab: 'chat' | 'data' | 'history') => {
     setActivePrimaryTab(tab);
   }, []);
 
@@ -1445,81 +1422,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     );
   };
 
-  const SmartDataView = () => {
-    return (
-      <div className="h-full bg-slate-50 flex flex-col relative">
-           
-           {/* Global Action Header */}
-           <div className="h-10 bg-white border-b border-slate-200 flex items-center justify-between px-4 shrink-0">
-               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Smart Analysis</span>
-               <button 
-                 onClick={copySmartSelection}
-                 disabled={selectedSmartIds.size === 0}
-                 className={`text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors ${
-                     selectedSmartIds.size > 0 
-                     ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' 
-                     : 'text-slate-300 cursor-not-allowed'
-                 }`}
-               >
-                   <Copy size={12} /> Copy Selection
-               </button>
-           </div>
-
-           <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                
-                {/* 1. Entity List */}
-                <div>
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Detected Entities</h3>
-                  <div className="space-y-2">
-                    {/* No entities available - mock data removed */}
-                    <div className="text-center py-8 text-slate-400 text-sm">
-                      No entities detected yet. Use the chat feature to analyze your data.
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Source Ranking */}
-                <div>
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Relevant Data Sources</h3>
-                    <div className="space-y-2">
-                        {dataSources
-                            .filter(ds => ds.relevanceScore !== undefined)
-                            .sort((a,b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
-                            .map(ds => (
-                            <div 
-                              key={ds.id} 
-                              className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 transition-colors cursor-pointer"
-                              onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSmartSourceClick(ds.id);
-                              }}
-                            >
-                                <input 
-                                   type="checkbox" 
-                                   checked={selectedSmartIds.has(ds.id)}
-                                   onChange={() => toggleSmartSelection(ds.id)}
-                                   onClick={(e) => e.stopPropagation()}
-                                   className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <div className="mt-0.5 text-slate-400">
-                                    {ds.type === 'web' ? <Globe size={14} /> : <FileText size={14} />}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex justify-between items-center mb-0.5">
-                                        <div className="text-sm font-medium text-slate-700 truncate" title={ds.title}>{ds.title}</div>
-                                        <div className="text-xs font-bold text-green-600 bg-green-50 px-1 rounded">{((ds.relevanceScore || 0) * 100).toFixed(0)}%</div>
-                                    </div>
-                                    <div className="text-[10px] text-slate-400 truncate">{ds.url}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-           </div>
-      </div>
-  );
-  };
-
   const HistoryView = () => (
       <div className="h-full bg-slate-50 p-4 overflow-y-auto">
           <div className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Previous Sessions</div>
@@ -1573,8 +1475,10 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                 heroInputRef={heroInputRef}
                 replyInputRef={replyInputRef}
               />
-            ) : (
+            ) : activePrimaryTab === 'data' ? (
               <DataView />
+            ) : (
+              <HistoryView />
             )}
          </div>
       </div>
@@ -1617,8 +1521,8 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
             <button onClick={() => switchSecondaryTab('data')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'data' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
                 <Database size={18} /><span className="text-[10px] font-medium">Smart Data</span>
             </button>
-            <button onClick={() => switchSecondaryTab('history')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'history' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
-                <History size={18} /><span className="text-[10px] font-medium">History</span>
+            <button onClick={() => switchSecondaryTab('resources')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'resources' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
+                <FileText size={18} /><span className="text-[10px] font-medium">Resources</span>
             </button>
           </div>
 
@@ -1627,8 +1531,8 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
           <div className="h-8 border-b border-slate-100 flex items-center justify-between px-2 bg-slate-50 shrink-0">
              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
                  {activeSecondaryTab === 'mvg' && "Knowledge Graph"}
-                 {activeSecondaryTab === 'data' && "Smart Data Analysis"}
-                 {activeSecondaryTab === 'history' && "Interaction History"}
+                 {activeSecondaryTab === 'data' && "Structured Output"}
+                 {activeSecondaryTab === 'resources' && "Resources"}
              </div>
           </div>
           )}
@@ -1654,30 +1558,34 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
 
              {activeSecondaryTab === 'data' && (
                  <div className="flex flex-col h-full">
-                     {relevantSessions.length > 0 && (
-                         <div className="h-1/2 border-b border-gray-200">
-                             <RelevantSessionsList 
-                                 sessions={relevantSessions}
-                                 onSessionClick={(session) => {
-                                     if (session.url) {
-                                         window.open(session.url, '_blank');
-                                     }
-                                 }}
-                             />
+                     {structuredOutput ? (
+                         <StructuredOutput data={structuredOutput} />
+                     ) : (
+                         <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                             No structured output available. Use the chat feature to generate structured output.
                          </div>
-                     )}
-                     {structuredOutput && (
-                         <div className={relevantSessions.length > 0 ? 'h-1/2' : 'h-full'}>
-                             <StructuredOutput data={structuredOutput} />
-                         </div>
-                     )}
-                     {relevantSessions.length === 0 && !structuredOutput && (
-                         <SmartDataView />
                      )}
                  </div>
              )}
 
-             {activeSecondaryTab === 'history' && <HistoryView />}
+             {activeSecondaryTab === 'resources' && (
+                 <div className="w-full h-full">
+                     {relevantSessions.length > 0 ? (
+                         <RelevantSessionsList 
+                             sessions={relevantSessions}
+                             onSessionClick={(session) => {
+                                 if (session.url) {
+                                     window.open(session.url, '_blank');
+                                 }
+                             }}
+                         />
+                     ) : (
+                         <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                             No relevant sessions found. Use the chat feature to generate resources.
+                         </div>
+                     )}
+                 </div>
+             )}
           </div>
           )}
       </div>

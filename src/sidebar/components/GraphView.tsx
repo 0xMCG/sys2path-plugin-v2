@@ -16,12 +16,16 @@ const GraphView: React.FC<GraphViewProps> = ({ data, mvgData, activeNodeId, onNo
   const svgRef = useRef<SVGSVGElement>(null);
   const [internalActiveNode, setInternalActiveNode] = useState<string | null>(null);
   const [edgePopup, setEdgePopup] = useState<{ x: number; y: number; content: string } | null>(null);
+  const [weightThreshold, setWeightThreshold] = useState<number>(0);
 
-  // Convert MVG data to GraphData format
+  // Convert MVG data to GraphData format and filter by weight threshold
   const graphData = useMemo<GraphData>(() => {
+    let allNodes: any[] = [];
+    let allEdges: any[] = [];
+
     if (mvgData) {
       // Convert MVG nodes to D3 nodes
-      const d3Nodes = mvgData.nodes.map(node => ({
+      allNodes = mvgData.nodes.map(node => ({
         id: node.id,
         label: node.label,
         rank: node.value,
@@ -29,20 +33,31 @@ const GraphView: React.FC<GraphViewProps> = ({ data, mvgData, activeNodeId, onNo
       }));
 
       // Convert MVG edges to D3 edges
-      const d3Edges = mvgData.edges.map(edge => ({
+      allEdges = mvgData.edges.map(edge => ({
         source: edge.from_node,
         target: edge.to_node,
         value: edge.chunks.length,
         chunks: edge.chunks,
         summary: `Connected via ${edge.chunks.length} chunk(s)`,
       }));
-
-      return { nodes: d3Nodes, links: d3Edges };
+    } else if (data) {
+      allNodes = data.nodes;
+      allEdges = data.links;
     }
-    
-    // Fallback to provided data or empty graph
-    return data || { nodes: [], links: [] };
-  }, [mvgData, data]);
+
+    // Filter nodes by weight threshold
+    const filteredNodes = allNodes.filter(node => node.rank >= weightThreshold);
+    const nodeIds = new Set(filteredNodes.map(n => n.id));
+
+    // Filter edges: only keep edges where both source and target nodes pass the threshold
+    const filteredEdges = allEdges.filter(edge => {
+      const sourceId = typeof edge.source === 'string' ? edge.source : (edge.source as any).id;
+      const targetId = typeof edge.target === 'string' ? edge.target : (edge.target as any).id;
+      return nodeIds.has(sourceId) && nodeIds.has(targetId);
+    });
+
+    return { nodes: filteredNodes, links: filteredEdges };
+  }, [mvgData, data, weightThreshold]);
 
   useEffect(() => {
     if (activeNodeId !== undefined) {
@@ -161,7 +176,7 @@ const GraphView: React.FC<GraphViewProps> = ({ data, mvgData, activeNodeId, onNo
     return () => {
       simulation.stop();
     };
-  }, [graphData, width, height, internalActiveNode, onNodeClick]);
+  }, [graphData, width, height, internalActiveNode, onNodeClick, weightThreshold]);
 
   function drag(simulation: d3.Simulation<any, undefined>) {
     function dragstarted(event: any) {
@@ -188,8 +203,31 @@ const GraphView: React.FC<GraphViewProps> = ({ data, mvgData, activeNodeId, onNo
   }
 
   return (
-    <div className="w-full h-full bg-slate-50 border border-slate-200 rounded-lg overflow-hidden relative group">
-      <svg ref={svgRef} width="100%" height="100%" />
+    <div className="w-full h-full bg-slate-50 border border-slate-200 rounded-lg overflow-hidden relative group flex flex-col">
+      {/* Weight filter slider */}
+      <div className="absolute top-2 left-2 z-20 bg-white/95 backdrop-blur border border-slate-200 shadow-sm rounded-md p-2 min-w-[200px]">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Weight Threshold
+          </label>
+          <span className="text-xs text-slate-600 font-mono">
+            {(weightThreshold * 100).toFixed(0)}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={weightThreshold}
+          onChange={(e) => setWeightThreshold(parseFloat(e.target.value))}
+          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer slider"
+          style={{
+            background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${weightThreshold * 100}%, #e2e8f0 ${weightThreshold * 100}%, #e2e8f0 100%)`
+          }}
+        />
+      </div>
+      <svg ref={svgRef} width="100%" height="100%" className="flex-1" />
       
       {edgePopup && (
         <div 
