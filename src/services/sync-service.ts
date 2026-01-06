@@ -1,5 +1,4 @@
 // 同步服务 - 同步服务器 sessions 与本地 data sources
-import { apiService } from './api';
 import { loadDataSources } from './data-loader';
 import type { DataSource } from '../types';
 import type { Session } from '../types/api';
@@ -15,7 +14,18 @@ export async function syncServerSessions(): Promise<DataSource[]> {
   try {
     console.log('[SYNC] Starting server sessions sync...');
     
-    // Get all local data sources
+    // Check if user is authenticated
+    const { apiService } = await import('./api');
+    const userInfo = await apiService.getUserInfo();
+    if (!userInfo || !userInfo.id) {
+      console.warn('[SYNC] No user ID found, skipping sync. User must be logged in.');
+      // Return local data sources even if not authenticated
+      return await loadDataSources();
+    }
+    
+    console.log('[SYNC] Syncing for user ID:', userInfo.id);
+    
+    // Get all local data sources (already user-isolated via StorageService)
     const localDataSources = await loadDataSources();
     console.log('[SYNC] Local data sources:', localDataSources.length);
     

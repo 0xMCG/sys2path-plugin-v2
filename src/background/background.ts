@@ -12,11 +12,9 @@ chrome.runtime.onInstalled.addListener((details) => {
   console.log('[BACKGROUND] Extension installed:', details.reason);
   
   if (details.reason === 'install') {
-    // Initialize storage with correct keys
-    chrome.storage.local.set({
-      sys2path_conversations: [],
-      sys2path_page_contents: []
-    });
+    // Storage keys are now user-specific, so we don't need to initialize here
+    // They will be created automatically when first used
+    console.log('[BACKGROUND] Extension installed - storage will be initialized per user');
   }
 });
 
@@ -92,18 +90,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
  */
 async function handleCaptureConversation(data: any): Promise<void> {
   try {
-    const result = await chrome.storage.local.get('sys2path_conversations');
-    const conversations: any[] = Array.isArray(result.sys2path_conversations) ? result.sys2path_conversations : [];
-    
-    // Check if conversation already exists
-    const existingIndex = conversations.findIndex((c: any) => c.id === data.id);
-    if (existingIndex >= 0) {
-      conversations[existingIndex] = data;
-    } else {
-      conversations.push(data);
-    }
-    
-    await chrome.storage.local.set({ sys2path_conversations: conversations });
+    // Use StorageService to ensure user isolation
+    await StorageService.saveConversation(data);
     console.log('[BACKGROUND] Saved conversation:', data.id);
   } catch (error) {
     console.error('[BACKGROUND] Failed to save conversation:', error);
@@ -116,17 +104,8 @@ async function handleCaptureConversation(data: any): Promise<void> {
  */
 async function handleCapturePage(data: any): Promise<void> {
   try {
-    const result = await chrome.storage.local.get('sys2path_page_contents');
-    const pageContents: any[] = Array.isArray(result.sys2path_page_contents) ? result.sys2path_page_contents : [];
-    
-    const existingIndex = pageContents.findIndex((p: any) => p.id === data.id);
-    if (existingIndex >= 0) {
-      pageContents[existingIndex] = data;
-    } else {
-      pageContents.push(data);
-    }
-    
-    await chrome.storage.local.set({ sys2path_page_contents: pageContents });
+    // Use StorageService to ensure user isolation
+    await StorageService.savePageContent(data);
     console.log('[BACKGROUND] Saved page content:', data.id);
   } catch (error) {
     console.error('[BACKGROUND] Failed to save page content:', error);
@@ -135,12 +114,30 @@ async function handleCapturePage(data: any): Promise<void> {
 }
 
 /**
+ * Get storage key with user ID suffix for data isolation
+ */
+async function getStorageKey(baseKey: string): Promise<string> {
+  try {
+    const result = await chrome.storage.local.get('sys2path_user_info');
+    const userInfo = result.sys2path_user_info;
+    if (userInfo && typeof userInfo === 'object' && 'id' in userInfo && userInfo.id) {
+      return `${baseKey}_user_${userInfo.id}`;
+    }
+    return baseKey; // Fallback to original key if no user ID
+  } catch (error) {
+    console.warn('[BACKGROUND] Failed to get user ID, using base key:', error);
+    return baseKey;
+  }
+}
+
+/**
  * Get all conversations
  */
 async function handleGetConversations(): Promise<any[]> {
   try {
-    const result = await chrome.storage.local.get('sys2path_conversations');
-    return Array.isArray(result.sys2path_conversations) ? result.sys2path_conversations : [];
+    const storageKey = await getStorageKey('sys2path_conversations');
+    const result = await chrome.storage.local.get(storageKey);
+    return Array.isArray(result[storageKey]) ? result[storageKey] : [];
   } catch (error) {
     console.error('[BACKGROUND] Failed to get conversations:', error);
     return [];
@@ -152,8 +149,9 @@ async function handleGetConversations(): Promise<any[]> {
  */
 async function handleGetPageContents(): Promise<any[]> {
   try {
-    const result = await chrome.storage.local.get('sys2path_page_contents');
-    return Array.isArray(result.sys2path_page_contents) ? result.sys2path_page_contents : [];
+    const storageKey = await getStorageKey('sys2path_page_contents');
+    const result = await chrome.storage.local.get(storageKey);
+    return Array.isArray(result[storageKey]) ? result[storageKey] : [];
   } catch (error) {
     console.error('[BACKGROUND] Failed to get page contents:', error);
     return [];

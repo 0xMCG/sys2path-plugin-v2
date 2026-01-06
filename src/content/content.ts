@@ -277,6 +277,40 @@ async function handleCapture(): Promise<void> {
   }
 }
 
+// Helper function to copy text to clipboard with fallback
+async function copyToClipboard(text: string): Promise<boolean> {
+  // Method 1: Try Clipboard API
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn('[CONTENT] Clipboard API failed, trying fallback:', e);
+      // Fall through to fallback method
+    }
+  }
+  
+  // Method 2: Try document.execCommand fallback
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-999999px';
+  textarea.style.top = '-999999px';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  
+  try {
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+  } catch (e) {
+    document.body.removeChild(textarea);
+    console.error('[CONTENT] execCommand copy failed:', e);
+    return false;
+  }
+}
+
 // Listen for messages from background or sidebar
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   console.log('[CONTENT] Message received:', message.type);
@@ -296,6 +330,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     default:
       sendResponse({ success: false, error: 'Unknown message type' });
+  }
+});
+
+// Listen for messages from sidebar iframe (for copy operation)
+window.addEventListener('message', async (event: MessageEvent) => {
+  // Verify message is from our sidebar iframe
+  const iframe = document.getElementById('sys2path-sidebar-iframe') as HTMLIFrameElement;
+  if (!iframe || event.source !== iframe.contentWindow) {
+    return;
+  }
+  
+  if (event.data && event.data.type === 'COPY_TO_CLIPBOARD') {
+    console.log('[CONTENT] Copy request received from sidebar');
+    try {
+      const success = await copyToClipboard(event.data.text);
+      
+      // Send result back to sidebar
+      if (iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'COPY_TO_CLIPBOARD_RESULT',
+          success,
+          error: success ? undefined : 'All copy methods failed'
+        }, '*');
+      }
+    } catch (error) {
+      console.error('[CONTENT] Failed to copy:', error);
+      if (iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+          type: 'COPY_TO_CLIPBOARD_RESULT',
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, '*');
+      }
+    }
   }
 });
 

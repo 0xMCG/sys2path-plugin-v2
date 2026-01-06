@@ -32,6 +32,38 @@ function getBaseId(versionedId: string): string {
 
 export class StorageService {
   /**
+   * Get current user ID from storage
+   * Returns null if no user is logged in
+   */
+  private static async getCurrentUserId(): Promise<number | null> {
+    try {
+      const result = await chrome.storage.local.get('sys2path_user_info');
+      const userInfo = result.sys2path_user_info;
+      if (userInfo && typeof userInfo === 'object' && 'id' in userInfo && userInfo.id) {
+        return userInfo.id as number;
+      }
+      return null;
+    } catch (error) {
+      console.warn('[STORAGE] Failed to get current user ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get storage key with user ID suffix for data isolation
+   * Format: ${baseKey}_user_${userId}
+   * Falls back to baseKey if no user ID (for backward compatibility)
+   */
+  private static async getStorageKey(baseKey: string): Promise<string> {
+    const userId = await this.getCurrentUserId();
+    if (userId !== null) {
+      return `${baseKey}_user_${userId}`;
+    }
+    // Fallback to original key if no user ID (unauthenticated state)
+    return baseKey;
+  }
+
+  /**
    * Save a ChatLLM conversation
    * Implements version management:
    * - If not uploaded: keep only the latest version (delete old versions)
@@ -40,9 +72,10 @@ export class StorageService {
    */
   static async saveConversation(conversation: ChatLLMConversation): Promise<SaveResult> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEYS.CONVERSATIONS);
-      const conversations: ChatLLMConversation[] = Array.isArray(result[STORAGE_KEYS.CONVERSATIONS]) 
-        ? (result[STORAGE_KEYS.CONVERSATIONS] as ChatLLMConversation[])
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
+      const result = await chrome.storage.local.get(storageKey);
+      const conversations: ChatLLMConversation[] = Array.isArray(result[storageKey]) 
+        ? (result[storageKey] as ChatLLMConversation[])
         : [];
       
       // Generate a unique ID for this capture using timestamp
@@ -96,7 +129,7 @@ export class StorageService {
           return cBaseId !== baseId;
         });
         otherConversations.push(versionedConversation);
-        await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: otherConversations });
+        await chrome.storage.local.set({ [storageKey]: otherConversations });
         console.log('[STORAGE] Saved conversation version (replaced old versions):', versionedId);
       } else {
         // Has uploaded versions: keep only the newest uploaded version and the new local version
@@ -118,7 +151,7 @@ export class StorageService {
         });
         
         otherConversations.push(versionedConversation);
-        await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: otherConversations });
+        await chrome.storage.local.set({ [storageKey]: otherConversations });
         console.log('[STORAGE] Saved conversation version (kept newest uploaded + new local):', versionedId);
       }
       
@@ -134,9 +167,10 @@ export class StorageService {
    */
   static async getAllConversations(): Promise<ChatLLMConversation[]> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEYS.CONVERSATIONS);
-      return Array.isArray(result[STORAGE_KEYS.CONVERSATIONS]) 
-        ? (result[STORAGE_KEYS.CONVERSATIONS] as ChatLLMConversation[])
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
+      const result = await chrome.storage.local.get(storageKey);
+      return Array.isArray(result[storageKey]) 
+        ? (result[storageKey] as ChatLLMConversation[])
         : [];
     } catch (error) {
       console.error('[STORAGE] Failed to get conversations:', error);
@@ -162,9 +196,10 @@ export class StorageService {
    */
   static async deleteConversation(id: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
       const conversations = await this.getAllConversations();
       const filtered = conversations.filter(c => c.id !== id);
-      await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted conversation:', id);
     } catch (error) {
       console.error('[STORAGE] Failed to delete conversation:', error);
@@ -177,9 +212,10 @@ export class StorageService {
    */
   static async deleteConversationVersion(versionId: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
       const conversations = await this.getAllConversations();
       const filtered = conversations.filter(c => c.id !== versionId);
-      await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted conversation version:', versionId);
     } catch (error) {
       console.error('[STORAGE] Failed to delete conversation version:', error);
@@ -196,9 +232,10 @@ export class StorageService {
    */
   static async savePageContent(content: GeneralPageContent): Promise<SaveResult> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEYS.PAGE_CONTENTS);
-      const contents: GeneralPageContent[] = Array.isArray(result[STORAGE_KEYS.PAGE_CONTENTS]) 
-        ? (result[STORAGE_KEYS.PAGE_CONTENTS] as GeneralPageContent[])
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
+      const result = await chrome.storage.local.get(storageKey);
+      const contents: GeneralPageContent[] = Array.isArray(result[storageKey]) 
+        ? (result[storageKey] as GeneralPageContent[])
         : [];
       
       // Generate a unique ID for this capture using timestamp
@@ -247,7 +284,7 @@ export class StorageService {
           return cBaseId !== baseId;
         });
         otherContents.push(versionedContent);
-        await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: otherContents });
+        await chrome.storage.local.set({ [storageKey]: otherContents });
         console.log('[STORAGE] Saved page content version (replaced old versions):', versionedId);
       } else {
         // Has uploaded versions: keep only the newest uploaded version and the new local version
@@ -269,7 +306,7 @@ export class StorageService {
         });
         
         otherContents.push(versionedContent);
-        await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: otherContents });
+        await chrome.storage.local.set({ [storageKey]: otherContents });
         console.log('[STORAGE] Saved page content version (kept newest uploaded + new local):', versionedId);
       }
       
@@ -285,9 +322,10 @@ export class StorageService {
    */
   static async getAllPageContents(): Promise<GeneralPageContent[]> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEYS.PAGE_CONTENTS);
-      return Array.isArray(result[STORAGE_KEYS.PAGE_CONTENTS]) 
-        ? (result[STORAGE_KEYS.PAGE_CONTENTS] as GeneralPageContent[])
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
+      const result = await chrome.storage.local.get(storageKey);
+      return Array.isArray(result[storageKey]) 
+        ? (result[storageKey] as GeneralPageContent[])
         : [];
     } catch (error) {
       console.error('[STORAGE] Failed to get page contents:', error);
@@ -313,9 +351,10 @@ export class StorageService {
    */
   static async deletePageContent(id: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
       const contents = await this.getAllPageContents();
       const filtered = contents.filter(c => c.id !== id);
-      await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted page content:', id);
     } catch (error) {
       console.error('[STORAGE] Failed to delete page content:', error);
@@ -328,9 +367,10 @@ export class StorageService {
    */
   static async deletePageContentVersion(versionId: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
       const contents = await this.getAllPageContents();
       const filtered = contents.filter(c => c.id !== versionId);
-      await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted page content version:', versionId);
     } catch (error) {
       console.error('[STORAGE] Failed to delete page content version:', error);
@@ -343,12 +383,13 @@ export class StorageService {
    */
   static async deleteConversationsByBaseId(baseId: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
       const conversations = await this.getAllConversations();
       const filtered = conversations.filter(c => {
         const convBaseId = getBaseId(c.id);
         return convBaseId !== baseId;
       });
-      await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted conversations with base ID:', baseId);
     } catch (error) {
       console.error('[STORAGE] Failed to delete conversations by base ID:', error);
@@ -361,12 +402,13 @@ export class StorageService {
    */
   static async deletePageContentsByBaseId(baseId: string): Promise<void> {
     try {
+      const storageKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
       const contents = await this.getAllPageContents();
       const filtered = contents.filter(c => {
         const contentBaseId = getBaseId(c.id);
         return contentBaseId !== baseId;
       });
-      await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: filtered });
+      await chrome.storage.local.set({ [storageKey]: filtered });
       console.log('[STORAGE] Deleted page contents with base ID:', baseId);
     } catch (error) {
       console.error('[STORAGE] Failed to delete page contents by base ID:', error);
@@ -393,17 +435,22 @@ export class StorageService {
 
 
   /**
-   * Clear all data
+   * Clear all data for current user only
    */
   static async clearAll(): Promise<void> {
     try {
+      const conversationsKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
+      const pageContentsKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
+      const serverUpdateTimesKey = await this.getStorageKey(STORAGE_KEYS.SERVER_UPDATE_TIMES);
+      const versionStatusKey = await this.getStorageKey('sys2path_version_status');
+      
       await chrome.storage.local.remove([
-        STORAGE_KEYS.CONVERSATIONS,
-        STORAGE_KEYS.PAGE_CONTENTS,
-        STORAGE_KEYS.SERVER_UPDATE_TIMES,
-        'sys2path_version_tags'
+        conversationsKey,
+        pageContentsKey,
+        serverUpdateTimesKey,
+        versionStatusKey
       ]);
-      console.log('[STORAGE] Cleared all data');
+      console.log('[STORAGE] Cleared all data for current user');
     } catch (error) {
       console.error('[STORAGE] Failed to clear data:', error);
       throw error;
@@ -420,6 +467,7 @@ export class StorageService {
    */
   static async markConversationAsUploaded(baseId: string, serverUpdateTime?: string): Promise<void> {
     try {
+      const conversationsKey = await this.getStorageKey(STORAGE_KEYS.CONVERSATIONS);
       const conversations = await this.getAllConversations();
       const versionsForBaseId = conversations.filter(c => {
         const convBaseId = getBaseId(c.id);
@@ -452,17 +500,18 @@ export class StorageService {
           return c.id === newestUploaded.id;
         });
         
-        await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: cleaned });
+        await chrome.storage.local.set({ [conversationsKey]: cleaned });
         console.log('[STORAGE] Marked conversation as uploaded and cleaned up old versions:', baseId);
       } else {
-        await chrome.storage.local.set({ [STORAGE_KEYS.CONVERSATIONS]: updated });
+        await chrome.storage.local.set({ [conversationsKey]: updated });
         console.log('[STORAGE] Marked conversation as uploaded:', baseId);
       }
       
       // Update version status to 'uploaded' via version status metadata
-      const result = await chrome.storage.local.get('sys2path_version_status');
+      const versionStatusKey = await this.getStorageKey('sys2path_version_status');
+      const result = await chrome.storage.local.get(versionStatusKey);
       const statuses: Record<string, 'local' | 'generated' | 'none' | 'uploaded'> = 
-        (result.sys2path_version_status as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
+        (result[versionStatusKey] as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
       
       const finalConversations = await this.getAllConversations();
       finalConversations.forEach(c => {
@@ -472,15 +521,16 @@ export class StorageService {
         }
       });
       
-      await chrome.storage.local.set({ sys2path_version_status: statuses });
+      await chrome.storage.local.set({ [versionStatusKey]: statuses });
       
       // Store serverUpdateTime if provided
       if (serverUpdateTime) {
-        const timesResult = await chrome.storage.local.get(STORAGE_KEYS.SERVER_UPDATE_TIMES);
+        const serverUpdateTimesKey = await this.getStorageKey(STORAGE_KEYS.SERVER_UPDATE_TIMES);
+        const timesResult = await chrome.storage.local.get(serverUpdateTimesKey);
         const serverUpdateTimes: Record<string, string> = 
-          (timesResult[STORAGE_KEYS.SERVER_UPDATE_TIMES] as Record<string, string>) || {};
+          (timesResult[serverUpdateTimesKey] as Record<string, string>) || {};
         serverUpdateTimes[baseId] = serverUpdateTime;
-        await chrome.storage.local.set({ [STORAGE_KEYS.SERVER_UPDATE_TIMES]: serverUpdateTimes });
+        await chrome.storage.local.set({ [serverUpdateTimesKey]: serverUpdateTimes });
         console.log('[STORAGE] Stored serverUpdateTime for conversation:', baseId, serverUpdateTime);
       }
     } catch (error) {
@@ -499,6 +549,7 @@ export class StorageService {
    */
   static async markPageContentAsUploaded(baseId: string, serverUpdateTime?: string): Promise<void> {
     try {
+      const pageContentsKey = await this.getStorageKey(STORAGE_KEYS.PAGE_CONTENTS);
       const contents = await this.getAllPageContents();
       const versionsForBaseId = contents.filter(c => {
         const contentBaseId = getBaseId(c.id);
@@ -531,17 +582,18 @@ export class StorageService {
           return c.id === newestUploaded.id;
         });
         
-        await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: cleaned });
+        await chrome.storage.local.set({ [pageContentsKey]: cleaned });
         console.log('[STORAGE] Marked page content as uploaded and cleaned up old versions:', baseId);
       } else {
-        await chrome.storage.local.set({ [STORAGE_KEYS.PAGE_CONTENTS]: updated });
+        await chrome.storage.local.set({ [pageContentsKey]: updated });
         console.log('[STORAGE] Marked page content as uploaded:', baseId);
       }
       
       // Update version status to 'uploaded' via version status metadata
-      const result = await chrome.storage.local.get('sys2path_version_status');
+      const versionStatusKey = await this.getStorageKey('sys2path_version_status');
+      const result = await chrome.storage.local.get(versionStatusKey);
       const statuses: Record<string, 'local' | 'generated' | 'none' | 'uploaded'> = 
-        (result.sys2path_version_status as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
+        (result[versionStatusKey] as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
       
       const finalContents = await this.getAllPageContents();
       finalContents.forEach(c => {
@@ -551,15 +603,16 @@ export class StorageService {
         }
       });
       
-      await chrome.storage.local.set({ sys2path_version_status: statuses });
+      await chrome.storage.local.set({ [versionStatusKey]: statuses });
       
       // Store serverUpdateTime if provided
       if (serverUpdateTime) {
-        const timesResult = await chrome.storage.local.get(STORAGE_KEYS.SERVER_UPDATE_TIMES);
+        const serverUpdateTimesKey = await this.getStorageKey(STORAGE_KEYS.SERVER_UPDATE_TIMES);
+        const timesResult = await chrome.storage.local.get(serverUpdateTimesKey);
         const serverUpdateTimes: Record<string, string> = 
-          (timesResult[STORAGE_KEYS.SERVER_UPDATE_TIMES] as Record<string, string>) || {};
+          (timesResult[serverUpdateTimesKey] as Record<string, string>) || {};
         serverUpdateTimes[baseId] = serverUpdateTime;
-        await chrome.storage.local.set({ [STORAGE_KEYS.SERVER_UPDATE_TIMES]: serverUpdateTimes });
+        await chrome.storage.local.set({ [serverUpdateTimesKey]: serverUpdateTimes });
         console.log('[STORAGE] Stored serverUpdateTime for page content:', baseId, serverUpdateTime);
       }
     } catch (error) {

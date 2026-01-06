@@ -255,15 +255,22 @@ export async function loadDataSources(): Promise<DataSource[]> {
       pageContentsCount: response.pageContents?.length || 0
     });
     
-    // Load version statuses
-    const statusResult = await chrome.storage.local.get('sys2path_version_status');
-    const versionStatuses: Record<string, 'local' | 'generated' | 'none' | 'uploaded'> = 
-      (statusResult.sys2path_version_status as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
+    // Get current user ID for storage key isolation
+    const userInfoResult = await chrome.storage.local.get('sys2path_user_info');
+    const userInfo = userInfoResult.sys2path_user_info;
+    const userId = (userInfo && typeof userInfo === 'object' && 'id' in userInfo && userInfo.id) ? userInfo.id as number : null;
     
-    // Load server update times
-    const timesResult = await chrome.storage.local.get('sys2path_server_update_times');
+    // Load version statuses with user isolation
+    const versionStatusKey = userId !== null ? `sys2path_version_status_user_${userId}` : 'sys2path_version_status';
+    const statusResult = await chrome.storage.local.get(versionStatusKey);
+    const versionStatuses: Record<string, 'local' | 'generated' | 'none' | 'uploaded'> = 
+      (statusResult[versionStatusKey] as Record<string, 'local' | 'generated' | 'none' | 'uploaded'>) || {};
+    
+    // Load server update times with user isolation
+    const serverUpdateTimesKey = userId !== null ? `sys2path_server_update_times_user_${userId}` : 'sys2path_server_update_times';
+    const timesResult = await chrome.storage.local.get(serverUpdateTimesKey);
     const serverUpdateTimes: Record<string, string> = 
-      (timesResult.sys2path_server_update_times as Record<string, string>) || {};
+      (timesResult[serverUpdateTimesKey] as Record<string, string>) || {};
     
     const dataSources: DataSource[] = [];
     

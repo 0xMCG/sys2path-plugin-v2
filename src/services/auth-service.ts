@@ -45,6 +45,15 @@ class AuthService {
               throw new Error('No access token received');
             }
             
+            // 检测用户切换
+            const oldUserInfo = await apiService.getUserInfo();
+            const newUserId = user.id;
+            
+            if (oldUserInfo && oldUserInfo.id && oldUserInfo.id !== newUserId) {
+              console.log('[AUTH] User switched from', oldUserInfo.id, 'to', newUserId);
+              // 不清理旧用户数据，保留多用户数据
+            }
+            
             // 存储token和用户信息
             await apiService.setAuthToken(access_token);
             await apiService.setUserInfo(user);

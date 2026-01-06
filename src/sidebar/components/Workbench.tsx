@@ -4,7 +4,7 @@ import {
   Send, X,
   Trash2, FileText, Globe, Upload, ChevronDown,
   Eye, Cloud, Search, ArrowUp, ArrowDown,
-  Loader2, CheckCircle2, XCircle
+  Loader2, CheckCircle2, XCircle, Copy, Check
 } from 'lucide-react';
 import { loadDataSources } from '../../services/data-loader';
 import { StorageService } from '../../services/storage';
@@ -177,6 +177,9 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
+  // Copy success state for Structured Output
+  const [copySuccess, setCopySuccess] = useState(false);
+  
   // Upload status management
   const [uploadStatuses, setUploadStatuses] = useState<Map<string, {
     status: 'idle' | 'uploading' | 'success' | 'failed';
@@ -253,8 +256,25 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     return () => window.removeEventListener('message', handleMessage);
   }, [refreshDataSources]);
 
-  // Sync with server when user is authenticated
+  // Track previous user ID to detect user switching
+  const prevUserIdRef = useRef<number | null>(null);
+
+  // Sync with server when user is authenticated or user switches
   useEffect(() => {
+    const currentUserId = authState.user?.id || null;
+    const isUserSwitched = prevUserIdRef.current !== null && 
+                          prevUserIdRef.current !== currentUserId && 
+                          currentUserId !== null;
+    
+    if (isUserSwitched) {
+      console.log('[WORKBENCH] User switched from', prevUserIdRef.current, 'to', currentUserId);
+      // Refresh data sources when user switches
+      refreshDataSources();
+    }
+    
+    // Update previous user ID
+    prevUserIdRef.current = currentUserId;
+    
     if (authState.isAuthenticated) {
       const syncWithServer = async () => {
         try {
@@ -269,7 +289,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       };
       syncWithServer();
     }
-  }, [authState.isAuthenticated]);
+  }, [authState.isAuthenticated, authState.user?.id, refreshDataSources]);
 
   useEffect(() => {
     // Auto-scroll to highlighted data source if active
@@ -404,7 +424,15 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes['sys2path_conversations'] || changes['sys2path_page_contents']) {
+      // Check for changes in user-isolated storage keys (with or without user suffix)
+      const hasConversationChange = Object.keys(changes).some(key => 
+        key.startsWith('sys2path_conversations')
+      );
+      const hasPageContentChange = Object.keys(changes).some(key => 
+        key.startsWith('sys2path_page_contents')
+      );
+      
+      if (hasConversationChange || hasPageContentChange) {
         console.log('[WORKBENCH] Storage changed, scheduling refresh...');
         
         // Debounce storage changes to avoid frequent re-renders
@@ -678,6 +706,94 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
      setHighlightedNode(nodeId);
      // Entity selection removed - no mock data
   };
+
+  // Copy Structured Output to clipboard with multi-layer fallback
+  const handleCopyStructuredOutput = useCallback(async () => {
+    if (!structuredOutput) return;
+    
+    try {
+      // Method 1: Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(structuredOutput);
+          setCopySuccess(true);
+          setTimeout(() => {
+            setCopySuccess(false);
+          }, 2000);
+          return;
+        } catch (clipboardError) {
+          console.warn('[WORKBENCH] Clipboard API failed, trying fallback:', clipboardError);
+          // Fall through to fallback method
+        }
+      }
+      
+      // Method 2: Try document.execCommand fallback
+      const textarea = document.createElement('textarea');
+      textarea.value = structuredOutput;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-999999px';
+      textarea.style.top = '-999999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (successful) {
+          setCopySuccess(true);
+          setTimeout(() => {
+            setCopySuccess(false);
+          }, 2000);
+          return;
+        } else {
+          throw new Error('execCommand copy failed');
+        }
+      } catch (execError) {
+        document.body.removeChild(textarea);
+        console.warn('[WORKBENCH] execCommand failed, trying postMessage:', execError);
+        // Fall through to postMessage method
+      }
+      
+      // Method 3: Use postMessage to let content script handle copy
+      // Set up a one-time listener for the result
+      const resultHandler = (event: MessageEvent) => {
+        if (event.data && event.data.type === 'COPY_TO_CLIPBOARD_RESULT') {
+          window.removeEventListener('message', resultHandler);
+          if (event.data.success) {
+            setCopySuccess(true);
+            setTimeout(() => {
+              setCopySuccess(false);
+            }, 2000);
+          } else {
+            console.error('[WORKBENCH] Copy via content script failed:', event.data.error);
+            alert('复制失败，请手动复制内容');
+          }
+        }
+      };
+      
+      window.addEventListener('message', resultHandler);
+      
+      // Send copy request to parent window (content script)
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'COPY_TO_CLIPBOARD',
+          text: structuredOutput
+        }, '*');
+        
+        // Set timeout to clean up listener if no response
+        setTimeout(() => {
+          window.removeEventListener('message', resultHandler);
+        }, 5000);
+      } else {
+        window.removeEventListener('message', resultHandler);
+        throw new Error('Cannot access parent window');
+      }
+    } catch (error) {
+      console.error('[WORKBENCH] All copy methods failed:', error);
+      alert('复制失败，请手动复制内容');
+    }
+  }, [structuredOutput]);
 
   // Selection Helpers
   const toggleDataSelection = (id: string) => {
@@ -1534,6 +1650,27 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                  {activeSecondaryTab === 'data' && "Structured Output"}
                  {activeSecondaryTab === 'resources' && "Resources"}
              </div>
+             {/* Copy button for Structured Output */}
+             {activeSecondaryTab === 'data' && structuredOutput && (
+               <div className="flex items-center gap-2">
+                 {copySuccess && (
+                   <span className="text-xs text-green-600 font-medium animate-fade-in">
+                     复制成功
+                   </span>
+                 )}
+                 <button
+                   onClick={handleCopyStructuredOutput}
+                   className="p-1 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                   title="Copy to clipboard"
+                 >
+                   {copySuccess ? (
+                     <Check size={14} className="text-green-600" />
+                   ) : (
+                     <Copy size={14} />
+                   )}
+                 </button>
+               </div>
+             )}
           </div>
           )}
 
