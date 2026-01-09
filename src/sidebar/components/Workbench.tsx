@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { 
   Network, Database,
   Send, X,
@@ -506,6 +506,74 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   const [relevantSessions, setRelevantSessions] = useState<RelevantSessionsResponse[]>([]);
   const [structuredOutput, setStructuredOutput] = useState<string | null>(null);
 
+  // Create entity ID to name mapping for copy functionality
+  const entityIdToName = useMemo(() => {
+    if (!mvgData?.nodes) return new Map<string, string>();
+    const map = new Map<string, string>();
+    mvgData.nodes.forEach(node => {
+      map.set(node.id, node.label);
+    });
+    return map;
+  }, [mvgData]);
+
+  // Transform structured output data: replace entity IDs with entity names
+  const transformedStructuredOutput = useMemo(() => {
+    if (!structuredOutput || entityIdToName.size === 0) {
+      return structuredOutput;
+    }
+
+    try {
+      const parsedData = JSON.parse(structuredOutput);
+      const transformed: Record<string, any> = {};
+
+      for (const [key, value] of Object.entries(parsedData)) {
+        // Transform key: "entity_a_entity_b" -> "EntityNameA → EntityNameB"
+        let newKey = key;
+        if (key.includes('_')) {
+          const underscoreIndex = key.indexOf('_');
+          if (underscoreIndex > 0) {
+            const part1 = key.substring(0, underscoreIndex);
+            const part2 = key.substring(underscoreIndex + 1);
+            
+            if (part1.includes('-') && part2.includes('-') && 
+                part1.length > 20 && part2.length > 20) {
+              const name1 = entityIdToName.get(part1) || part1;
+              const name2 = entityIdToName.get(part2) || part2;
+              newKey = `${name1} → ${name2}`;
+            }
+          }
+        }
+
+        // Transform value: replace entity IDs in path array
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const valueObj = value as Record<string, any>;
+          const transformedValue: Record<string, any> = {};
+          
+          // Copy all properties
+          for (const [propKey, propValue] of Object.entries(valueObj)) {
+            transformedValue[propKey] = propValue;
+          }
+          
+          // Transform path array if it exists
+          if (Array.isArray(transformedValue.path)) {
+            transformedValue.path = transformedValue.path.map((id: string) => {
+              return entityIdToName.get(id) || id;
+            });
+          }
+          
+          transformed[newKey] = transformedValue;
+        } else {
+          transformed[newKey] = value;
+        }
+      }
+
+      return JSON.stringify(transformed, null, 2);
+    } catch (error) {
+      console.error('[WORKBENCH] Failed to transform structured output:', error);
+      return structuredOutput;
+    }
+  }, [structuredOutput, entityIdToName]);
+
   // Chat Logic
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -708,14 +776,16 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   };
 
   // Copy Structured Output to clipboard with multi-layer fallback
+  // Uses transformed data with entity names instead of IDs
   const handleCopyStructuredOutput = useCallback(async () => {
-    if (!structuredOutput) return;
+    const dataToCopy = transformedStructuredOutput || structuredOutput;
+    if (!dataToCopy) return;
     
     try {
       // Method 1: Try modern Clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {
         try {
-          await navigator.clipboard.writeText(structuredOutput);
+          await navigator.clipboard.writeText(dataToCopy);
           setCopySuccess(true);
           setTimeout(() => {
             setCopySuccess(false);
@@ -729,7 +799,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       
       // Method 2: Try document.execCommand fallback
       const textarea = document.createElement('textarea');
-      textarea.value = structuredOutput;
+      textarea.value = dataToCopy;
       textarea.style.position = 'fixed';
       textarea.style.left = '-999999px';
       textarea.style.top = '-999999px';
@@ -778,7 +848,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({
           type: 'COPY_TO_CLIPBOARD',
-          text: structuredOutput
+          text: dataToCopy
         }, '*');
         
         // Set timeout to clean up listener if no response
@@ -793,7 +863,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       console.error('[WORKBENCH] All copy methods failed:', error);
       alert('复制失败，请手动复制内容');
     }
-  }, [structuredOutput]);
+  }, [structuredOutput, transformedStructuredOutput]);
 
   // Selection Helpers
   const toggleDataSelection = (id: string) => {
@@ -1696,7 +1766,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
              {activeSecondaryTab === 'data' && (
                  <div className="flex flex-col h-full">
                      {structuredOutput ? (
-                         <StructuredOutput data={structuredOutput} />
+                         <StructuredOutput data={structuredOutput} mvgData={mvgData} />
                      ) : (
                          <div className="flex items-center justify-center h-full text-slate-400 text-sm">
                              No structured output available. Use the chat feature to generate structured output.
