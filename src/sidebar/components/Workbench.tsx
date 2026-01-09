@@ -848,7 +848,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
       };
       setMessages(prev => [...prev, aiMsg]);
     }
-  }, [authState.isAuthenticated, secondaryHeight]);
+  }, [authState.isAuthenticated, secondaryHeight, activatedDataIds]);
   
   // Input handlers with useCallback to prevent re-renders
   const handleCompositionStart = useCallback(() => {
