@@ -8,7 +8,8 @@ import type {
   GetSessionsRequest,
   GetSessionsResponse,
   OAuthProvider,
-  ApiError
+  ApiError,
+  ResponseBase
 } from '../types/api';
 
 class ApiService {
@@ -215,6 +216,30 @@ class ApiService {
       {
         method: 'POST',
         body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * 删除整个用户的 CKG
+   */
+  async deleteUserCKG(): Promise<ResponseBase> {
+    return this.request<ResponseBase>(
+      API_CONFIG.ENDPOINTS.CKG.DELETE_USER_CKG,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  /**
+   * 删除单个 session 的 CKG
+   */
+  async deleteSessionCKG(sessionId: string): Promise<ResponseBase> {
+    return this.request<ResponseBase>(
+      `${API_CONFIG.ENDPOINTS.CKG.DELETE_SESSION_CKG}?session_id=${encodeURIComponent(sessionId)}`,
+      {
+        method: 'POST',
       }
     );
   }

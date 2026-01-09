@@ -31,6 +31,16 @@ export interface VisualizeMVGRequest {
   include_chunks?: boolean;
   include_session_relevance?: boolean;
   session_relevance_method?: string;
+  source_ids?: string[];
+}
+
+export interface ChunkResponse {
+  chunk_id: string;
+  content: string;
+  entity_ids: string[];
+  entity_names: string[];
+  source_id?: string;
+  position?: number;
 }
 
 export interface RelevantSessionsResponse {
@@ -41,6 +51,7 @@ export interface RelevantSessionsResponse {
   title: string;
   update_time: string;
   last_message_id: string;
+  chunks?: ChunkResponse[];
 }
 
 export interface NodeResponse {
@@ -117,5 +128,11 @@ export interface OAuthCallbackResponse {
 export interface ApiError {
   detail: string;
   status_code?: number;
+}
+
+export interface ResponseBase {
+  success: boolean;
+  message: string;
+  processing_time_seconds?: number;
 }
 

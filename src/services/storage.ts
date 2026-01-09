@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   CONVERSATIONS: 'sys2path_conversations',
   PAGE_CONTENTS: 'sys2path_page_contents',
   SERVER_UPDATE_TIMES: 'sys2path_server_update_times',
+  ACTIVATED_DATA_IDS: 'sys2path_activated_data_ids',
 } as const;
 
 /**
@@ -655,6 +656,49 @@ export class StorageService {
       console.warn('[STORAGE] Data source not found for base ID:', baseId);
     } catch (error) {
       console.error('[STORAGE] Failed to mark data source as uploaded:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load activated data source IDs for current user
+   */
+  static async loadActivatedDataIds(): Promise<Set<string>> {
+    try {
+      const userId = await this.getCurrentUserId();
+      const storageKey = userId !== null 
+        ? `${STORAGE_KEYS.ACTIVATED_DATA_IDS}_user_${userId}` 
+        : STORAGE_KEYS.ACTIVATED_DATA_IDS;
+      
+      const result = await chrome.storage.local.get(storageKey);
+      const activatedIds = result[storageKey];
+      
+      if (Array.isArray(activatedIds)) {
+        return new Set(activatedIds);
+      }
+      return new Set<string>();
+    } catch (error) {
+      console.error('[STORAGE] Failed to load activated data IDs:', error);
+      return new Set<string>();
+    }
+  }
+
+  /**
+   * Save activated data source IDs for current user
+   */
+  static async saveActivatedDataIds(ids: Set<string>): Promise<void> {
+    try {
+      const userId = await this.getCurrentUserId();
+      const storageKey = userId !== null 
+        ? `${STORAGE_KEYS.ACTIVATED_DATA_IDS}_user_${userId}` 
+        : STORAGE_KEYS.ACTIVATED_DATA_IDS;
+      
+      await chrome.storage.local.set({
+        [storageKey]: Array.from(ids)
+      });
+      console.log('[STORAGE] Saved activated data IDs:', Array.from(ids));
+    } catch (error) {
+      console.error('[STORAGE] Failed to save activated data IDs:', error);
       throw error;
     }
   }

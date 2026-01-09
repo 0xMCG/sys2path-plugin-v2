@@ -10,7 +10,9 @@ export const API_CONFIG = {
     CKG: {
       ADD_SESSIONS: '/ckg/add-sessions',
       VISUALIZE_MVG: '/ckg/visualize-mvg',
-      GET_SESSIONS: '/ckg/get-sessions'
+      GET_SESSIONS: '/ckg/get-sessions',
+      DELETE_USER_CKG: '/ckg/delete-user-ckg',
+      DELETE_SESSION_CKG: '/ckg/delete-session-ckg'
     }
   }
 } as const;

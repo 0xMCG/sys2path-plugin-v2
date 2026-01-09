@@ -105,16 +105,97 @@ export class GeneralPageCapture {
     // Remove common non-content elements
     clone.querySelectorAll('nav, header, footer, aside, .sidebar, .navigation, .menu, .advertisement, .ads').forEach(el => el.remove());
 
-    // Extract text content (automatically strips HTML tags)
-    let text = clone.textContent || (clone as HTMLElement).innerText || '';
+    // Extract text content while preserving paragraph structure
+    // Use DOM traversal to identify block-level elements and preserve their structure
+    const text = this.extractTextWithParagraphs(clone);
 
-    // Clean up whitespace
-    text = text
-      .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
-      .replace(/\n\s*\n/g, '\n') // Remove empty lines
+    // Clean up whitespace while preserving paragraph structure
+    return this.cleanTextPreservingParagraphs(text);
+  }
+
+  /**
+   * Extract text while preserving paragraph structure
+   * Traverses DOM nodes and identifies block-level elements to preserve paragraph breaks
+   */
+  private extractTextWithParagraphs(element: Element): string {
+    // Block-level elements that should have line breaks before and after
+    const BLOCK_ELEMENTS = new Set([
+      'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'li', 'blockquote', 'pre', 'hr', 'section', 'article',
+      'header', 'footer', 'aside', 'nav', 'table', 'tr',
+      'ul', 'ol', 'dl', 'dt', 'dd', 'figure', 'figcaption'
+    ]);
+
+    function processNode(node: Node): string {
+      // Text node: return text content
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent || '';
+        // Normalize whitespace within text (multiple spaces -> single space)
+        // But preserve newlines that might be in the text
+        return text.replace(/[ \t]+/g, ' ');
+      }
+
+      // Not an element node
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return '';
+      }
+
+      const element = node as Element;
+      const tagName = element.tagName.toLowerCase();
+      const isBlock = BLOCK_ELEMENTS.has(tagName);
+
+      // Process child nodes
+      const children = Array.from(element.childNodes)
+        .map(child => processNode(child))
+        .join('');
+
+      // Handle special elements
+      if (tagName === 'br') {
+        return '\n';
+      }
+
+      if (tagName === 'hr') {
+        return '\n---\n';
+      }
+
+      // Block-level elements: add line breaks before and after
+      if (isBlock) {
+        // For list items, preserve as-is with line breaks (parent ul/ol will handle formatting)
+        if (tagName === 'li') {
+          const trimmed = children.trim();
+          return trimmed ? `\n${trimmed}\n` : '';
+        }
+        // For other block elements, add line breaks
+        const trimmed = children.trim();
+        return trimmed ? `\n${trimmed}\n` : '';
+      }
+
+      // Inline elements: return children as-is
+      return children;
+    }
+
+    return processNode(element);
+  }
+
+  /**
+   * Clean text while preserving paragraph structure
+   * - Preserves line breaks between paragraphs
+   * - Normalizes whitespace within lines
+   * - Removes excessive blank lines
+   */
+  private cleanTextPreservingParagraphs(text: string): string {
+    return text
+      // First, normalize line breaks (handle different line break formats)
+      .replace(/\r\n/g, '\n')  // Windows line breaks
+      .replace(/\r/g, '\n')    // Old Mac line breaks
+      // Clean up whitespace within lines (multiple spaces/tabs -> single space)
+      .replace(/[ \t]+/g, ' ')  // Multiple spaces or tabs become single space
+      // Remove trailing whitespace from each line
+      .replace(/[ \t]+$/gm, '')  // Remove trailing spaces/tabs from each line
+      // Preserve paragraph breaks (2 newlines), but normalize excessive blank lines
+      .replace(/\n{3,}/g, '\n\n')  // 3 or more newlines become 2 (one blank line)
+      // Remove leading/trailing whitespace
       .trim();
-
-    return text;
   }
 
   /**

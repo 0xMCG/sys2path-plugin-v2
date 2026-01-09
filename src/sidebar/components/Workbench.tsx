@@ -4,7 +4,8 @@ import {
   Send, X,
   Trash2, FileText, Globe, Upload, ChevronDown,
   Eye, Cloud, Search, ArrowUp, ArrowDown,
-  Loader2, CheckCircle2, XCircle, Copy, Check
+  Loader2, CheckCircle2, XCircle, Copy, Check,
+  Power, PowerOff
 } from 'lucide-react';
 import { loadDataSources } from '../../services/data-loader';
 import { StorageService } from '../../services/storage';
@@ -33,6 +34,7 @@ interface ChatViewProps {
   onChatEntityLinkClick: () => void;
   heroInputRef: React.RefObject<HTMLInputElement | null>;
   replyInputRef: React.RefObject<HTMLInputElement | null>;
+  isWaitingResponse?: boolean;
 }
 
 // Extract ChatView as a memoized component to prevent unnecessary re-renders
@@ -46,7 +48,8 @@ const ChatView = React.memo<ChatViewProps>(({
   onSendClick,
   onChatEntityLinkClick,
   heroInputRef,
-  replyInputRef
+  replyInputRef,
+  isWaitingResponse = false
 }) => {
   const isHeroMode = messages.length === 0;
   return (
@@ -100,6 +103,23 @@ const ChatView = React.memo<ChatViewProps>(({
                 </div>
               </div>
             ))}
+            {isWaitingResponse && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-slate-900 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm">
+                  <Network size={14} className="text-white" />
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                    <span className="text-sm text-slate-500 ml-2">正在思考...</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="h-4"></div>
           </div>
           <div className="p-4 bg-white border-t border-slate-200 shrink-0">
@@ -126,9 +146,10 @@ const ChatView = React.memo<ChatViewProps>(({
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for React.memo
-  // Only re-render if messages or inputText change
+  // Only re-render if messages, inputText, or isWaitingResponse change
   return prevProps.messages.length === nextProps.messages.length &&
          prevProps.inputText === nextProps.inputText &&
+         prevProps.isWaitingResponse === nextProps.isWaitingResponse &&
          prevProps.messages.every((msg, idx) => 
            msg.id === nextProps.messages[idx]?.id && 
            msg.content === nextProps.messages[idx]?.content
@@ -142,6 +163,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   const [secondaryHeight, setSecondaryHeight] = useState(0); // Default: collapsed 
   const [activeSecondaryTab, setActiveSecondaryTab] = useState<'mvg' | 'data' | 'resources'>('mvg');
   const [activePrimaryTab, setActivePrimaryTab] = useState<'chat' | 'data' | 'history'>('chat');
+  const [activeGraphTab, setActiveGraphTab] = useState<'activated' | 'chat'>('activated'); // Graph tab: activated sources or chat result
   
   // --- Auth State ---
   const [authState, setAuthState] = useState<AuthState>({
@@ -194,6 +216,14 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   const replyInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false); // Use ref to track composition state without causing re-renders
 
+  // Activated data sources state (persisted) - must be defined early before useCallback/useEffect that use it
+  const [activatedDataIds, setActivatedDataIds] = useState<Set<string>>(new Set());
+  
+  // Activated sources CKG data (for Graph display)
+  const [activatedSourcesCKG, setActivatedSourcesCKG] = useState<MVGResponse | null>(null);
+  const [loadingActivatedCKG, setLoadingActivatedCKG] = useState(false);
+  const [activatedCKGError, setActivatedCKGError] = useState<string | null>(null);
+
   // Refresh data sources from storage - memoized to prevent unnecessary re-renders
   // Declared early so it can be used in useEffect dependencies
   const refreshDataSources = useCallback(async () => {
@@ -217,6 +247,16 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
         console.error('[WORKBENCH] Failed to load data sources:', error);
         // Keep empty array on loading failure
         setDataSources([]);
+      });
+    
+    // Load activated data source IDs from storage
+    StorageService.loadActivatedDataIds()
+      .then(ids => {
+        console.log('[WORKBENCH] Loaded activated data IDs:', Array.from(ids));
+        setActivatedDataIds(ids);
+      })
+      .catch(error => {
+        console.error('[WORKBENCH] Failed to load activated data IDs:', error);
       });
 
     // Listen for data capture events
@@ -471,14 +511,9 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
 
   // --- Handlers ---
 
-  const handleResizeStart = () => {
-    isResizing.current = true;
-    document.addEventListener('mousemove', handleResizeMove);
-    document.addEventListener('mouseup', handleResizeEnd);
-  };
-
-  const handleResizeMove = useCallback((e: MouseEvent) => {
+  const handleResizeMove = useCallback((e: MouseEvent | PointerEvent) => {
     if (!isResizing.current || !containerRef.current) return;
+    e.preventDefault();
     const containerRect = containerRef.current.getBoundingClientRect();
     const availableHeight = containerRect.height;
     // Calculate height from bottom
@@ -490,21 +525,184 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     setSecondaryHeight(clampedHeight);
   }, []);
 
-  const handleResizeEnd = () => {
+  const handleResizeEnd = useCallback(() => {
+    if (!isResizing.current) return;
+    
     isResizing.current = false;
+    
+    // Remove all event listeners
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
+    document.removeEventListener('pointermove', handleResizeMove);
+    document.removeEventListener('pointerup', handleResizeEnd);
+    window.removeEventListener('mouseleave', handleResizeEnd);
+    window.removeEventListener('blur', handleResizeEnd);
+    
+    // Restore text selection and cursor
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  }, [handleResizeMove]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = true;
+    
+    // Add event listeners to document for global mouse tracking
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+    
+    // Add pointer events as backup (more reliable)
+    document.addEventListener('pointermove', handleResizeMove);
+    document.addEventListener('pointerup', handleResizeEnd);
+    
+    // Add window-level events to catch mouse leaving window
+    window.addEventListener('mouseleave', handleResizeEnd);
+    window.addEventListener('blur', handleResizeEnd);
+    
+    // Prevent text selection during drag
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'row-resize';
   };
+
+  // Cleanup resize event listeners on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up any remaining event listeners if component unmounts during resize
+      if (isResizing.current) {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+        document.removeEventListener('pointermove', handleResizeMove);
+        document.removeEventListener('pointerup', handleResizeEnd);
+        window.removeEventListener('mouseleave', handleResizeEnd);
+        window.removeEventListener('blur', handleResizeEnd);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        isResizing.current = false;
+      }
+    };
+  }, [handleResizeMove, handleResizeEnd]);
 
   const switchSecondaryTab = (tab: 'mvg' | 'data' | 'resources') => {
       if (secondaryHeight <= 0) setSecondaryHeight(50);
       setActiveSecondaryTab(tab);
   };
 
+  // Activation handlers
+  const handleToggleActivation = useCallback(async (dataSourceId: string) => {
+    const newActivatedIds = new Set(activatedDataIds);
+    if (newActivatedIds.has(dataSourceId)) {
+      newActivatedIds.delete(dataSourceId);
+    } else {
+      newActivatedIds.add(dataSourceId);
+    }
+    setActivatedDataIds(newActivatedIds);
+    
+    // Save to storage
+    try {
+      await StorageService.saveActivatedDataIds(newActivatedIds);
+    } catch (error) {
+      console.error('[WORKBENCH] Failed to save activated data IDs:', error);
+    }
+  }, [activatedDataIds]);
+
+  const handleBatchToggleActivation = useCallback(async (activate: boolean) => {
+    const newActivatedIds = new Set(activatedDataIds);
+    const selectedSyncedIds = dataSources
+      .filter(ds => selectedDataIds.has(ds.id) && ds.isUploaded === true)
+      .map(ds => ds.id);
+    
+    if (activate) {
+      selectedSyncedIds.forEach(id => newActivatedIds.add(id));
+    } else {
+      selectedSyncedIds.forEach(id => newActivatedIds.delete(id));
+    }
+    
+    setActivatedDataIds(newActivatedIds);
+    
+    // Save to storage
+    try {
+      await StorageService.saveActivatedDataIds(newActivatedIds);
+    } catch (error) {
+      console.error('[WORKBENCH] Failed to save activated data IDs:', error);
+    }
+  }, [activatedDataIds, selectedDataIds, dataSources]);
+
+  // Load CKG for activated sources
+  const loadActivatedSourcesCKG = useCallback(async () => {
+    if (activatedDataIds.size === 0) {
+      setActivatedSourcesCKG(null);
+      return;
+    }
+
+    if (!authState.isAuthenticated) {
+      console.warn('[WORKBENCH] User not authenticated, cannot load activated sources CKG');
+      return;
+    }
+
+    setLoadingActivatedCKG(true);
+    try {
+      const { apiService } = await import('../../services/api');
+      const sourceIdsArray = Array.from(activatedDataIds);
+      console.log('[WORKBENCH] Loading CKG for activated sources:', sourceIdsArray);
+      
+      const response = await apiService.visualizeMVG({
+        source_ids: sourceIdsArray,
+        max_entities: 100,
+        expansion_depth: 0,
+        include_structured_output: false,
+        include_session_relevance: false,
+      });
+
+      console.log('[WORKBENCH] visualizeMVG response:', {
+        success: response.success,
+        hasMvg: !!response.mvg,
+        message: response.message,
+        mvgNodes: response.mvg?.nodes?.length || 0,
+        mvgEdges: response.mvg?.edges?.length || 0,
+      });
+
+      if (response.success && response.mvg) {
+        setActivatedSourcesCKG(response.mvg);
+        setActivatedCKGError(null);
+        console.log('[WORKBENCH] Successfully loaded activated sources CKG');
+      } else {
+        const errorMsg = response.message || 'Unknown error';
+        console.error('[WORKBENCH] Failed to load activated sources CKG:', errorMsg);
+        setActivatedSourcesCKG(null);
+        setActivatedCKGError(errorMsg);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[WORKBENCH] Failed to load activated sources CKG:', error);
+      setActivatedSourcesCKG(null);
+      setActivatedCKGError(errorMsg);
+    } finally {
+      setLoadingActivatedCKG(false);
+    }
+  }, [activatedDataIds, authState.isAuthenticated]);
+
+  // Auto-load CKG when activated sources change
+  useEffect(() => {
+    if (activatedDataIds.size > 0 && authState.isAuthenticated) {
+      // Debounce to avoid too many API calls
+      const timer = setTimeout(() => {
+        loadActivatedSourcesCKG();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setActivatedSourcesCKG(null);
+      setActivatedCKGError(null);
+    }
+  }, [activatedDataIds, authState.isAuthenticated, loadActivatedSourcesCKG]);
+
   // MVG visualization state
   const [mvgData, setMvgData] = useState<MVGResponse | null>(null);
   const [relevantSessions, setRelevantSessions] = useState<RelevantSessionsResponse[]>([]);
   const [structuredOutput, setStructuredOutput] = useState<string | null>(null);
+  
+  // Chat waiting state
+  const [isWaitingResponse, setIsWaitingResponse] = useState(false);
 
   // Create entity ID to name mapping for copy functionality
   const entityIdToName = useMemo(() => {
@@ -595,17 +793,25 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     setMvgData(null);
     setRelevantSessions([]);
     setStructuredOutput(null);
+    setIsWaitingResponse(true); // Start waiting
 
     try {
       // Call backend API
       const { apiService } = await import('../../services/api');
+      
+      // If there are activated sources, use them to filter CKG
+      const sourceIds = activatedDataIds.size > 0 ? Array.from(activatedDataIds) : undefined;
+      
       const response = await apiService.visualizeMVG({
         prompt: text,
         max_entities: 100,
         expansion_depth: 0,
         include_structured_output: true,
         include_session_relevance: true,
+        source_ids: sourceIds, // Filter by activated sources if any
       });
+
+      setIsWaitingResponse(false); // Stop waiting
 
       if (response.success && response.mvg) {
         setMvgData(response.mvg);
@@ -630,6 +836,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
         throw new Error(response.message || 'Failed to generate MVG');
       }
     } catch (error) {
+      setIsWaitingResponse(false); // Stop waiting on error
       console.error('[CHAT] Failed to visualize MVG:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to generate MVG';
       
@@ -883,6 +1090,30 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     }
     
     try {
+      // Check if data source is synced (isUploaded === true)
+      if (dataSource?.isUploaded === true) {
+        // Check if user is authenticated
+        if (!authState.isAuthenticated) {
+          // If not authenticated but data source is marked as synced, skip server deletion
+          console.warn('[WORKBENCH] Data source is marked as synced but user is not authenticated, skipping server deletion');
+        } else {
+          // Delete session CKG on server first (baseId is the session_id)
+          try {
+            const { apiService } = await import('../../services/api');
+            const response = await apiService.deleteSessionCKG(baseId);
+            if (!response.success) {
+              throw new Error(response.message || 'Failed to delete session CKG on server');
+            }
+          } catch (error) {
+            console.error('[WORKBENCH] Failed to delete session CKG on server:', error);
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            alert(`删除失败：无法删除服务器上的数据。${errorMsg}。请检查网络连接后重试。`);
+            return; // Terminate deletion
+          }
+        }
+      }
+      
+      // Server deletion successful (or not needed), delete local records
       await StorageService.deleteDataSources([baseId]);
       await refreshDataSources();
       setSelectedDataIds(new Set());
@@ -907,7 +1138,39 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     }
     
     try {
-      await StorageService.deleteDataSources(Array.from(selectedDataIds));
+      // Get data sources to delete
+      const dataSourcesToDelete = dataSources.filter(ds => selectedDataIds.has(ds.id));
+      const baseIds = Array.from(selectedDataIds);
+      
+      // Check if any data source is synced (isUploaded === true)
+      const syncedDataSources = dataSourcesToDelete.filter(ds => ds.isUploaded === true);
+      
+      if (syncedDataSources.length > 0) {
+        // Check if user is authenticated
+        if (!authState.isAuthenticated) {
+          // If not authenticated but data sources are marked as synced, skip server deletion
+          console.warn('[WORKBENCH] Some data sources are marked as synced but user is not authenticated, skipping server deletion');
+        } else {
+          // Delete each synced session CKG on server
+          const { apiService } = await import('../../services/api');
+          for (const syncedDataSource of syncedDataSources) {
+            try {
+              const response = await apiService.deleteSessionCKG(syncedDataSource.id);
+              if (!response.success) {
+                throw new Error(response.message || `Failed to delete session CKG for ${syncedDataSource.id}`);
+              }
+            } catch (error) {
+              console.error(`[WORKBENCH] Failed to delete session CKG for ${syncedDataSource.id}:`, error);
+              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+              alert(`删除失败：无法删除服务器上的数据源 "${syncedDataSource.title}"。${errorMsg}。请检查网络连接后重试。`);
+              return; // Terminate deletion
+            }
+          }
+        }
+      }
+      
+      // Server deletion successful (or not needed), delete local records
+      await StorageService.deleteDataSources(baseIds);
       await refreshDataSources();
       setSelectedDataIds(new Set());
       // Clear preview if any deleted item was being previewed
@@ -1331,11 +1594,19 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                     <span className="text-xs text-slate-500">{filteredAndSorted.length} items</span>
                 </div>
                 <div className="space-y-3">
-                    {filteredAndSorted.map(ds => (
+                    {filteredAndSorted.map(ds => {
+                        const isActivated = activatedDataIds.has(ds.id);
+                        return (
                         <div 
                           key={ds.id} 
                           id={`ds-${ds.id}`}
-                          className={`bg-white border rounded-lg shadow-sm p-3 group transition-all duration-500 ${highlightedDataId === ds.id ? 'ring-2 ring-indigo-500 border-indigo-500' : 'border-slate-200 hover:border-indigo-300'}`}
+                          className={`bg-white border rounded-lg shadow-sm p-3 group transition-all duration-500 ${
+                            highlightedDataId === ds.id 
+                              ? 'ring-2 ring-indigo-500 border-indigo-500' 
+                              : isActivated
+                              ? 'border-2 border-green-400 bg-gradient-to-r from-green-50/50 to-transparent hover:border-green-500'
+                              : 'border-slate-200 hover:border-indigo-300'
+                          }`}
                         >
                             <div className="flex items-start gap-3 mb-2">
                                 <input 
@@ -1499,6 +1770,23 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                                           <Cloud size={14} />
                                       </button>
                                     )}
+                                    {/* Activation button - only show for uploaded data sources */}
+                                    {ds.isUploaded && (
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleToggleActivation(ds.id);
+                                        }}
+                                        className={`p-1 rounded transition-colors ${
+                                          isActivated 
+                                            ? 'text-green-600 bg-green-50 hover:bg-green-100' 
+                                            : 'text-slate-500 hover:bg-slate-100 hover:text-green-600'
+                                        }`}
+                                        title={isActivated ? "Deactivate" : "Activate for CKG filtering"}
+                                      >
+                                        {isActivated ? <Power size={14} className="fill-current" /> : <PowerOff size={14} />}
+                                      </button>
+                                    )}
                                     <button 
                                       onClick={() => setPreviewDataId(ds.id)}
                                       className="p-1 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 rounded transition-colors"
@@ -1519,7 +1807,8 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                                 </div>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                     
                     <button className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-semibold hover:border-slate-300 hover:text-slate-500 flex items-center justify-center gap-2">
                         <Upload size={14} /> Add Source
@@ -1555,6 +1844,31 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                          >
                              <Cloud size={12} /> Upload
                          </button>
+                         {(() => {
+                           const selectedSyncedIds = dataSources
+                             .filter(ds => selectedDataIds.has(ds.id) && ds.isUploaded === true)
+                             .map(ds => ds.id);
+                           const allSelectedAreActivated = selectedSyncedIds.length > 0 && 
+                             selectedSyncedIds.every(id => activatedDataIds.has(id));
+                           
+                           if (selectedSyncedIds.length > 0) {
+                             return (
+                               <button 
+                                 onClick={() => handleBatchToggleActivation(!allSelectedAreActivated)}
+                                 className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${
+                                   allSelectedAreActivated
+                                     ? 'hover:bg-green-500/50 text-green-200 hover:text-white'
+                                     : 'hover:bg-green-500/50 text-green-200 hover:text-white'
+                                 }`}
+                                 title={allSelectedAreActivated ? "Deactivate selected" : "Activate selected"}
+                               >
+                                 {allSelectedAreActivated ? <PowerOff size={12} /> : <Power size={12} />} 
+                                 {allSelectedAreActivated ? 'Deactivate' : 'Activate'}
+                               </button>
+                             );
+                           }
+                           return null;
+                         })()}
                          <button 
                            onClick={handleBatchDelete}
                            className="px-2 py-1 hover:bg-red-500/50 text-red-200 hover:text-white rounded text-xs flex items-center gap-1"
@@ -1660,6 +1974,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                 onChatEntityLinkClick={handleChatEntityLinkClick}
                 heroInputRef={heroInputRef}
                 replyInputRef={replyInputRef}
+                isWaitingResponse={isWaitingResponse}
               />
             ) : activePrimaryTab === 'data' ? (
               <DataView />
@@ -1715,10 +2030,49 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
           {/* Secondary Header (Collapsible) - Only show when expanded */}
           {secondaryHeight > 0 && (
           <div className="h-8 border-b border-slate-100 flex items-center justify-between px-2 bg-slate-50 shrink-0">
-             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
-                 {activeSecondaryTab === 'mvg' && "Knowledge Graph"}
-                 {activeSecondaryTab === 'data' && "Structured Output"}
-                 {activeSecondaryTab === 'resources' && "Resources"}
+             <div className="flex items-center gap-2 flex-1">
+                 {activeSecondaryTab === 'mvg' && (
+                   <>
+                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
+                       Knowledge Graph
+                     </div>
+                     {/* Graph Tab Switcher */}
+                     <div className="flex items-center gap-1 ml-2">
+                       <button
+                         onClick={() => setActiveGraphTab('activated')}
+                         className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
+                           activeGraphTab === 'activated'
+                             ? 'bg-indigo-600 text-white'
+                             : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                         }`}
+                         title="Show activated sources CKG"
+                       >
+                         Activated ({activatedDataIds.size})
+                       </button>
+                       <button
+                         onClick={() => setActiveGraphTab('chat')}
+                         className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
+                           activeGraphTab === 'chat'
+                             ? 'bg-indigo-600 text-white'
+                             : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                         }`}
+                         title="Show chat result CKG"
+                       >
+                         Chat Result
+                       </button>
+                     </div>
+                   </>
+                 )}
+                 {activeSecondaryTab === 'data' && (
+                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
+                     Structured Output
+                   </div>
+                 )}
+                 {activeSecondaryTab === 'resources' && (
+                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
+                     Resources
+                   </div>
+                 )}
              </div>
              {/* Copy button for Structured Output */}
              {activeSecondaryTab === 'data' && structuredOutput && (
@@ -1749,17 +2103,73 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
           <div className="flex-1 overflow-hidden relative">
              {activeSecondaryTab === 'mvg' && (
                  <div className="w-full h-full p-2 bg-slate-50">
-                     {mvgData ? (
-                         <GraphView 
-                            mvgData={mvgData}
-                            activeNodeId={highlightedNode}
-                            onNodeClick={handleGraphNodeClick} 
-                         />
-                     ) : (
-                         <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                           No graph data available. Use the chat feature to generate a knowledge graph.
-                         </div>
-                     )}
+                     {(() => {
+                       // Show different content based on active graph tab
+                       if (activeGraphTab === 'activated') {
+                         // Activated Sources Tab
+                         if (loadingActivatedCKG) {
+                           return (
+                             <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                               <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                               Loading activated sources graph...
+                             </div>
+                           );
+                         }
+                         
+                         if (activatedSourcesCKG) {
+                           return (
+                             <GraphView 
+                                mvgData={activatedSourcesCKG}
+                                activeNodeId={highlightedNode}
+                                onNodeClick={handleGraphNodeClick} 
+                             />
+                           );
+                         }
+                         
+                         // Show error or empty state for activated sources
+                         if (activatedDataIds.size > 0) {
+                           return (
+                             <div className="flex flex-col items-center justify-center h-full text-slate-400 text-sm p-4">
+                               <div className="mb-2">No graph data available for activated sources.</div>
+                               {activatedCKGError && (
+                                 <div className="text-xs text-red-500 mb-2 bg-red-50 px-3 py-2 rounded border border-red-200">
+                                   Error: {activatedCKGError}
+                                 </div>
+                               )}
+                               <div className="text-xs text-slate-500">
+                                 Activated IDs: {Array.from(activatedDataIds).join(', ')}
+                               </div>
+                               <div className="text-xs text-slate-500 mt-1">
+                                 Please ensure sources are synced and have CKG data generated.
+                               </div>
+                             </div>
+                           );
+                         }
+                         
+                         return (
+                           <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                             No activated sources. Activate data sources to view their graph.
+                           </div>
+                         );
+                       } else {
+                         // Chat Result Tab
+                         if (mvgData) {
+                           return (
+                             <GraphView 
+                                mvgData={mvgData}
+                                activeNodeId={highlightedNode}
+                                onNodeClick={handleGraphNodeClick} 
+                             />
+                           );
+                         }
+                         
+                         return (
+                           <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                             No graph data available. Use the chat feature to generate a knowledge graph.
+                           </div>
+                         );
+                       }
+                     })()}
                  </div>
              )}
 
@@ -1796,7 +2206,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
           </div>
           )}
       </div>
-
     </div>
   );
 };
