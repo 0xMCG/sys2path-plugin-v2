@@ -5,11 +5,12 @@ import {
   Trash2, FileText, Globe, Upload, ChevronDown,
   Eye, Cloud, Search, ArrowUp, ArrowDown,
   Loader2, CheckCircle2, XCircle, Copy, Check,
-  Power, PowerOff
+  Power, PowerOff,
+  HelpCircle, CheckSquare
 } from 'lucide-react';
 import { loadDataSources } from '../../services/data-loader';
 import { StorageService } from '../../services/storage';
-import type { Message, ViewMode, DataSource } from '../../types';
+import type { Message, ViewMode, DataSource, PromptResponse } from '../../types';
 import type { ChatLLMConversation, GeneralPageContent, ChatLLMPlatform, ChatLLMMessage } from '../../types/capture';
 import type { MVGResponse, RelevantSessionsResponse } from '../../types/api';
 import GraphView from './GraphView';
@@ -89,17 +90,73 @@ const ChatView = React.memo<ChatViewProps>(({
                   <div className="w-8 h-8 rounded-full bg-slate-900 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm"><Network size={14} className="text-white" /></div>
                 )}
                 <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-sm'}`}>
-                  {msg.content.split(/(\[.*?\])/g).map((part, idx) => {
-                    if (part.startsWith('[') && part.endsWith(']')) {
-                      const name = part.slice(1, -1);
-                      return (
-                        <button key={idx} onClick={onChatEntityLinkClick} className={`mx-1 px-1.5 py-0.5 rounded text-sm font-medium transition-colors inline-flex items-center ${msg.role === 'user' ? 'bg-blue-500 text-white hover:bg-blue-400' : 'text-blue-600 bg-blue-50 hover:bg-blue-100'}`}>
-                          {name}
-                        </button>
-                      );
-                    }
-                    return <span key={idx}>{part}</span>;
-                  })}
+                  {msg.promptResponse ? (
+                    <div className="space-y-4">
+                      {/* Expanded Query - Main Content */}
+                      <div className="text-slate-700">
+                        {msg.promptResponse.expanded_query.split(/(\[.*?\])/g).map((part, idx) => {
+                          if (part.startsWith('[') && part.endsWith(']')) {
+                            const name = part.slice(1, -1);
+                            return (
+                              <button key={idx} onClick={onChatEntityLinkClick} className="mx-1 px-1.5 py-0.5 rounded text-sm font-medium transition-colors inline-flex items-center text-blue-600 bg-blue-50 hover:bg-blue-100">
+                                {name}
+                              </button>
+                            );
+                          }
+                          return <span key={idx}>{part}</span>;
+                        })}
+                      </div>
+                      
+                      {/* Right Questions List */}
+                      {msg.promptResponse.right_questions && msg.promptResponse.right_questions.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <div className="flex items-center gap-2 mb-3">
+                            <HelpCircle size={16} className="text-blue-600" />
+                            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Related Questions</span>
+                          </div>
+                          <ul className="space-y-2 ml-6">
+                            {msg.promptResponse.right_questions.map((question, idx) => (
+                              <li key={idx} className="flex items-start gap-2 text-slate-600">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span>{question}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Action Items List */}
+                      {msg.promptResponse.action_items && msg.promptResponse.action_items.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <div className="flex items-center gap-2 mb-3">
+                            <CheckSquare size={16} className="text-green-600" />
+                            <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Action Items</span>
+                          </div>
+                          <ul className="space-y-2 ml-6">
+                            {msg.promptResponse.action_items.map((item, idx) => (
+                              <li key={idx} className="flex items-start gap-2 text-slate-600">
+                                <span className="text-green-500 mt-1">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // Fallback to original content rendering
+                    msg.content.split(/(\[.*?\])/g).map((part, idx) => {
+                      if (part.startsWith('[') && part.endsWith(']')) {
+                        const name = part.slice(1, -1);
+                        return (
+                          <button key={idx} onClick={onChatEntityLinkClick} className={`mx-1 px-1.5 py-0.5 rounded text-sm font-medium transition-colors inline-flex items-center ${msg.role === 'user' ? 'bg-blue-500 text-white hover:bg-blue-400' : 'text-blue-600 bg-blue-50 hover:bg-blue-100'}`}>
+                            {name}
+                          </button>
+                        );
+                      }
+                      return <span key={idx}>{part}</span>;
+                    })
+                  )}
                 </div>
               </div>
             ))}
@@ -163,7 +220,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   const [secondaryHeight, setSecondaryHeight] = useState(0); // Default: collapsed 
   const [activeSecondaryTab, setActiveSecondaryTab] = useState<'mvg' | 'data' | 'resources'>('mvg');
   const [activePrimaryTab, setActivePrimaryTab] = useState<'chat' | 'data' | 'history'>('chat');
-  const [activeGraphTab, setActiveGraphTab] = useState<'activated' | 'chat'>('activated'); // Graph tab: activated sources or chat result
   
   // --- Auth State ---
   const [authState, setAuthState] = useState<AuthState>({
@@ -591,6 +647,8 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   // Activation handlers
   const handleToggleActivation = useCallback(async (dataSourceId: string) => {
     const newActivatedIds = new Set(activatedDataIds);
+    const isActivating = !newActivatedIds.has(dataSourceId);
+    
     if (newActivatedIds.has(dataSourceId)) {
       newActivatedIds.delete(dataSourceId);
     } else {
@@ -604,7 +662,15 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     } catch (error) {
       console.error('[WORKBENCH] Failed to save activated data IDs:', error);
     }
-  }, [activatedDataIds]);
+    
+    // Auto-expand secondary panel in Data tab when activating a source
+    if (isActivating && activePrimaryTab === 'data') {
+      if (secondaryHeight <= 0) {
+        setSecondaryHeight(50);
+      }
+      setActiveSecondaryTab('mvg');
+    }
+  }, [activatedDataIds, activePrimaryTab, secondaryHeight]);
 
   const handleBatchToggleActivation = useCallback(async (activate: boolean) => {
     const newActivatedIds = new Set(activatedDataIds);
@@ -626,7 +692,15 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
     } catch (error) {
       console.error('[WORKBENCH] Failed to save activated data IDs:', error);
     }
-  }, [activatedDataIds, selectedDataIds, dataSources]);
+    
+    // Auto-expand secondary panel in Data tab when activating sources
+    if (activate && activePrimaryTab === 'data' && selectedSyncedIds.length > 0) {
+      if (secondaryHeight <= 0) {
+        setSecondaryHeight(50);
+      }
+      setActiveSecondaryTab('mvg');
+    }
+  }, [activatedDataIds, selectedDataIds, dataSources, activePrimaryTab, secondaryHeight]);
 
   // Load CKG for activated sources
   const loadActivatedSourcesCKG = useCallback(async () => {
@@ -824,12 +898,30 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
         }
         setActiveSecondaryTab('mvg');
 
+        // Parse prompt_response if available
+        let promptResponse: PromptResponse | undefined;
+        if (response.prompt_response) {
+          try {
+            const parsed = JSON.parse(response.prompt_response);
+            if (parsed.expanded_query && Array.isArray(parsed.right_questions) && Array.isArray(parsed.action_items)) {
+              promptResponse = {
+                expanded_query: parsed.expanded_query,
+                right_questions: parsed.right_questions,
+                action_items: parsed.action_items,
+              };
+            }
+          } catch (error) {
+            console.warn('[CHAT] Failed to parse prompt_response:', error);
+          }
+        }
+
         // Add AI response message
         const aiMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: 'ai',
-          content: response.message || 'MVG visualization generated successfully',
+          content: promptResponse ? promptResponse.expanded_query : (response.message || 'MVG visualization generated successfully'),
           timestamp: Date.now(),
+          promptResponse: promptResponse,
         };
         setMessages(prev => [...prev, aiMsg]);
       } else {
@@ -1374,7 +1466,24 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
   
   const handleTabChange = useCallback((tab: 'chat' | 'data' | 'history') => {
     setActivePrimaryTab(tab);
-  }, []);
+    
+    if (tab === 'history') {
+      // Auto-collapse secondary panel when switching to History tab
+      setSecondaryHeight(0);
+      return;
+    }
+    
+    // When switching to Data tab, automatically set secondary tab to 'mvg' (only Graph available)
+    if (tab === 'data') {
+      setActiveSecondaryTab('mvg');
+      // If secondary panel is collapsed and there are activated sources, expand it
+      if (secondaryHeight <= 0 && activatedDataIds.size > 0) {
+        setSecondaryHeight(50);
+      }
+    }
+    // When switching to Chat tab, keep current secondary panel state
+    // (If expanded, it will show the three tabs: Graph, Smart Data, Resources)
+  }, [secondaryHeight, activatedDataIds.size]);
 
   const DataView = () => {
     const handleUploadStart = useCallback((ids: string[]) => {
@@ -1994,7 +2103,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
         }}
       >
           {/* --- Top Control Bar: Resize Handle + Collapse Button --- */}
-          {secondaryHeight > 0 && (
+          {secondaryHeight > 0 && activePrimaryTab !== 'history' && (
             <div className="h-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
               {/* Resize Handle Area - Left side, takes most space */}
               <div 
@@ -2014,54 +2123,31 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
             </div>
           )}
 
-          {/* --- Persistent Bottom Tab Bar (Inside panel, above content, always visible) --- */}
-          <div className="h-12 bg-white border-b border-slate-200 flex items-center justify-around shrink-0 z-20">
-            <button onClick={() => switchSecondaryTab('mvg')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'mvg' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
-                <Network size={18} /><span className="text-[10px] font-medium">Graph</span>
-            </button>
-            <button onClick={() => switchSecondaryTab('data')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'data' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
-                <Database size={18} /><span className="text-[10px] font-medium">Smart Data</span>
-            </button>
-            <button onClick={() => switchSecondaryTab('resources')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'resources' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
-                <FileText size={18} /><span className="text-[10px] font-medium">Resources</span>
-            </button>
-          </div>
+          {/* --- Persistent Bottom Tab Bar (Inside panel, above content, only visible in Chat tab) --- */}
+          {activePrimaryTab === 'chat' && (
+            <div className="h-12 bg-white border-b border-slate-200 flex items-center justify-around shrink-0 z-20">
+              <button onClick={() => switchSecondaryTab('mvg')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'mvg' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
+                  <Network size={18} /><span className="text-[10px] font-medium">Graph</span>
+              </button>
+              <button onClick={() => switchSecondaryTab('data')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'data' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
+                  <Database size={18} /><span className="text-[10px] font-medium">Smart Data</span>
+              </button>
+              <button onClick={() => switchSecondaryTab('resources')} className={`flex flex-col items-center justify-center w-full h-full gap-0.5 transition-colors ${activeSecondaryTab === 'resources' && secondaryHeight > 0 ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
+                  <FileText size={18} /><span className="text-[10px] font-medium">Resources</span>
+              </button>
+            </div>
+          )}
 
-          {/* Secondary Header (Collapsible) - Only show when expanded */}
-          {secondaryHeight > 0 && (
+          {/* Secondary Header (Collapsible) - Only show when expanded and not in History tab */}
+          {secondaryHeight > 0 && activePrimaryTab !== 'history' && (
           <div className="h-8 border-b border-slate-100 flex items-center justify-between px-2 bg-slate-50 shrink-0">
              <div className="flex items-center gap-2 flex-1">
                  {activeSecondaryTab === 'mvg' && (
-                   <>
-                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
-                       Knowledge Graph
-                     </div>
-                     {/* Graph Tab Switcher */}
-                     <div className="flex items-center gap-1 ml-2">
-                       <button
-                         onClick={() => setActiveGraphTab('activated')}
-                         className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
-                           activeGraphTab === 'activated'
-                             ? 'bg-indigo-600 text-white'
-                             : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                         }`}
-                         title="Show activated sources CKG"
-                       >
-                         Activated ({activatedDataIds.size})
-                       </button>
-                       <button
-                         onClick={() => setActiveGraphTab('chat')}
-                         className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
-                           activeGraphTab === 'chat'
-                             ? 'bg-indigo-600 text-white'
-                             : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                         }`}
-                         title="Show chat result CKG"
-                       >
-                         Chat Result
-                       </button>
-                     </div>
-                   </>
+                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
+                     {activePrimaryTab === 'chat' 
+                       ? 'Query Result Graph' 
+                       : `Activated Sources Graph (${activatedDataIds.size} source${activatedDataIds.size !== 1 ? 's' : ''})`}
+                   </div>
                  )}
                  {activeSecondaryTab === 'data' && (
                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2">
@@ -2098,15 +2184,32 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
           </div>
           )}
 
-          {/* Secondary Content Area - Only show when expanded */}
-          {secondaryHeight > 0 && (
+          {/* Secondary Content Area - Only show when expanded and not in History tab */}
+          {secondaryHeight > 0 && activePrimaryTab !== 'history' && (
           <div className="flex-1 overflow-hidden relative">
              {activeSecondaryTab === 'mvg' && (
                  <div className="w-full h-full p-2 bg-slate-50">
                      {(() => {
-                       // Show different content based on active graph tab
-                       if (activeGraphTab === 'activated') {
-                         // Activated Sources Tab
+                       // Show different content based on active primary tab
+                       if (activePrimaryTab === 'chat') {
+                         // Chat Result Graph
+                         if (mvgData) {
+                           return (
+                             <GraphView 
+                                mvgData={mvgData}
+                                activeNodeId={highlightedNode}
+                                onNodeClick={handleGraphNodeClick} 
+                             />
+                           );
+                         }
+                         
+                         return (
+                           <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                             No graph data available. Use the chat feature to generate a knowledge graph.
+                           </div>
+                         );
+                       } else {
+                         // Activated Sources Graph (Data tab)
                          if (loadingActivatedCKG) {
                            return (
                              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
@@ -2151,29 +2254,12 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                              No activated sources. Activate data sources to view their graph.
                            </div>
                          );
-                       } else {
-                         // Chat Result Tab
-                         if (mvgData) {
-                           return (
-                             <GraphView 
-                                mvgData={mvgData}
-                                activeNodeId={highlightedNode}
-                                onNodeClick={handleGraphNodeClick} 
-                             />
-                           );
-                         }
-                         
-                         return (
-                           <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                             No graph data available. Use the chat feature to generate a knowledge graph.
-                           </div>
-                         );
                        }
                      })()}
                  </div>
              )}
 
-             {activeSecondaryTab === 'data' && (
+             {activeSecondaryTab === 'data' && activePrimaryTab === 'chat' && (
                  <div className="flex flex-col h-full">
                      {structuredOutput ? (
                          <StructuredOutput data={structuredOutput} mvgData={mvgData} />
@@ -2185,7 +2271,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                  </div>
              )}
 
-             {activeSecondaryTab === 'resources' && (
+             {activeSecondaryTab === 'resources' && activePrimaryTab === 'chat' && (
                  <div className="w-full h-full">
                      {relevantSessions.length > 0 ? (
                          <RelevantSessionsList 

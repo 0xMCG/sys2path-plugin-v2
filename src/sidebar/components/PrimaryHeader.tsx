@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { Maximize2 } from 'lucide-react';
 import { ConnectionStatus } from './ConnectionStatus';
 import { AuthButton } from './AuthButton';
 import type { AuthState } from '../../services/auth-service';
@@ -35,6 +36,14 @@ export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({
     onTabChange('history');
   }, [onTabChange]);
 
+  const handleOpenDashboard = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[WORKBENCH] Open dashboard clicked');
+    const url = chrome.runtime.getURL('dashboard.html');
+    chrome.tabs.create({ url });
+  }, []);
+
   return (
     <div className="h-14 border-b border-slate-200 flex items-center justify-between px-4 bg-white shrink-0 z-50 relative" style={{ pointerEvents: 'auto' }}>
        <div className="flex items-center gap-4" style={{ pointerEvents: 'auto' }}>
@@ -69,6 +78,14 @@ export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({
           <div style={{ pointerEvents: 'none' }}>
             <ConnectionStatus />
           </div>
+          <button
+            onClick={handleOpenDashboard}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+            title="Open in fullscreen"
+            style={{ pointerEvents: 'auto' }}
+          >
+            <Maximize2 size={18} />
+          </button>
           <div style={{ pointerEvents: 'auto' }}>
             <AuthButton onAuthChange={onAuthChange} />
           </div>

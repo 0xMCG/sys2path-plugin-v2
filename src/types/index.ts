@@ -30,12 +30,19 @@ export interface Entity {
   relatedChunks: string[];
 }
 
+export interface PromptResponse {
+  expanded_query: string;
+  right_questions: string[];
+  action_items: string[];
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'ai' | 'system';
   content: string;
   timestamp: number;
   entities?: string[]; // IDs of entities mentioned
+  promptResponse?: PromptResponse; // Parsed prompt_response from visualize-mvg API
 }
 
 export interface GraphNode extends SimulationNodeDatum {

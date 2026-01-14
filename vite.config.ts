@@ -36,6 +36,26 @@ export default defineConfig({
           console.log('✅ Copied and fixed sidebar.html')
         }
 
+        // Copy dashboard HTML and fix paths
+        const dashboardHtmlPaths = [
+          'dist/src/dashboard/index.html',
+          'dist/assets/dashboard.html',
+          'dist/dashboard.html'
+        ]
+        let dashboardHtmlPath = dashboardHtmlPaths.find(path => existsSync(path))
+        if (dashboardHtmlPath && dashboardHtmlPath !== 'dist/dashboard.html') {
+          copyFileSync(dashboardHtmlPath, 'dist/dashboard.html')
+          let dashboardContent = readFileSync('dist/dashboard.html', 'utf8')
+          // Fix script and style paths
+          dashboardContent = dashboardContent.replace(/src="\/dashboard\.js"/g, 'src="./dashboard.js"')
+          dashboardContent = dashboardContent.replace(/href="\/assets\/([^"]+)\.css"/g, 'href="./assets/$1.css"')
+          // Fix chunk paths
+          dashboardContent = dashboardContent.replace(/src="\/chunks\//g, 'src="./chunks/')
+          dashboardContent = dashboardContent.replace(/href="\/chunks\//g, 'href="./chunks/')
+          writeFileSync('dist/dashboard.html', dashboardContent)
+          console.log('✅ Copied and fixed dashboard.html')
+        }
+
         // No cleanup needed - all files are now in IIFE format
 
         // Update manifest.json web accessible resources
@@ -47,7 +67,10 @@ export default defineConfig({
             manifest.web_accessible_resources[0].resources = [
               'sidebar.html',
               'sidebar.js',
-              'sidebar.css'
+              'sidebar.css',
+              'dashboard.html',
+              'dashboard.js',
+              'dashboard.css'
             ]
           }
           
@@ -61,7 +84,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background/background.ts'),
-        sidebar: resolve(__dirname, 'src/sidebar/index.html')
+        sidebar: resolve(__dirname, 'src/sidebar/index.html'),
+        dashboard: resolve(__dirname, 'src/dashboard/index.html')
         // Note: content.js is built separately as IIFE (see build-content.js)
       },
       output: {
@@ -70,6 +94,9 @@ export default defineConfig({
         entryFileNames: (chunkInfo: { name: string }) => {
           if (chunkInfo.name === 'sidebar') {
             return 'sidebar.js'
+          }
+          if (chunkInfo.name === 'dashboard') {
+            return 'dashboard.js'
           }
           return '[name].js'
         },
