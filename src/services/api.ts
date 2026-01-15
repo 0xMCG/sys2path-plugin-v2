@@ -1,5 +1,6 @@
 // API服务层 - 封装所有后端API调用
 import { API_CONFIG, STORAGE_KEYS } from '../config/api';
+import { configService } from './config-service';
 import type {
   AddSessionsRequest,
   AddSessionResponse,
@@ -13,12 +14,45 @@ import type {
 } from '../types/api';
 
 class ApiService {
-  private baseUrl: string;
+  private baseUrl: string | null = null;
   private apiPrefix: string;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.baseUrl = API_CONFIG.BASE_URL;
     this.apiPrefix = API_CONFIG.API_PREFIX;
+    // 初始化baseUrl
+    this.initPromise = this.initializeBaseUrl();
+    // 监听配置变更
+    configService.addListener((config) => {
+      this.baseUrl = config.apiUrl;
+    });
+  }
+
+  /**
+   * 初始化baseUrl
+   */
+  private async initializeBaseUrl(): Promise<void> {
+    this.baseUrl = await configService.getApiUrl();
+  }
+
+  /**
+   * 确保baseUrl已初始化
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.baseUrl === null) {
+      if (this.initPromise) {
+        await this.initPromise;
+      } else {
+        await this.initializeBaseUrl();
+      }
+    }
+  }
+
+  /**
+   * 更新baseUrl（供外部调用）
+   */
+  async updateBaseUrl(): Promise<void> {
+    this.baseUrl = await configService.getApiUrl();
   }
 
   /**
@@ -87,7 +121,11 @@ class ApiService {
   /**
    * 构建完整的API URL
    */
-  private getApiUrl(endpoint: string): string {
+  private async getApiUrl(endpoint: string): Promise<string> {
+    await this.ensureInitialized();
+    if (!this.baseUrl) {
+      throw new Error('API base URL not initialized');
+    }
     return `${this.baseUrl}${this.apiPrefix}${endpoint}`;
   }
 
@@ -124,7 +162,7 @@ class ApiService {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const url = this.getApiUrl(endpoint);
+    const url = await this.getApiUrl(endpoint);
     
     try {
       const response = await fetch(url, {
@@ -168,7 +206,7 @@ class ApiService {
   /**
    * OAuth登录 - 返回登录URL
    */
-  getOAuthLoginUrl(provider: OAuthProvider): string {
+  async getOAuthLoginUrl(provider: OAuthProvider): Promise<string> {
     return this.getApiUrl(`${API_CONFIG.ENDPOINTS.AUTH.LOGIN}/${provider}`);
   }
 

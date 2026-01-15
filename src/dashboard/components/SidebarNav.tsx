@@ -1,6 +1,7 @@
 import React from 'react';
 import { MessageSquare, Database, History } from 'lucide-react';
 import { AuthButton } from '../../sidebar/components/AuthButton';
+import { ConnectionStatus } from '../../sidebar/components/ConnectionStatus';
 import type { AuthState } from '../../services/auth-service';
 
 interface SidebarNavProps {
@@ -58,8 +59,11 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
       </div>
       
       {/* User Info at Bottom */}
-      <div className="border-t border-slate-200 p-4">
+      <div className="border-t border-slate-200 p-4 space-y-3">
         <AuthButtonWrapper onAuthChange={onAuthChange} />
+        <div className="pt-2 border-t border-slate-100">
+          <ConnectionStatus />
+        </div>
       </div>
     </div>
   );

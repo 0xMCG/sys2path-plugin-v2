@@ -44,17 +44,22 @@
     <p class="error" id="error" style="display: none;"></p>
   </div>
   <script type="module">
-    import { apiService } from './services/api.ts';
+    import { configService } from './services/config-service.ts';
+    import { API_CONFIG } from './config/api.ts';
     
     async function handleCallback() {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const provider = urlParams.get('provider');
         
+        // 从配置服务获取API URL
+        const config = await configService.getConfig();
+        const apiUrl = config.apiUrl;
+        
         // provider 现在存储在 session 中，后端会自动从 session 读取
         // 但为了向后兼容，仍然可以传递 provider 参数
         // 调用后端callback接口获取token（provider 会从 session 中读取）
-        const callbackUrl = `http://localhost:8000/api/v1/auth/callback${provider ? `?provider=${provider}` : ''}`;
+        const callbackUrl = `${apiUrl}${API_CONFIG.API_PREFIX}/auth/callback${provider ? `?provider=${provider}` : ''}`;
         const response = await fetch(callbackUrl, {
           method: 'GET',
           credentials: 'include',  // 重要：包含 cookies，以便后端读取 session

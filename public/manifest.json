@@ -21,7 +21,8 @@
     "*://x.com/i/grok*"
   ],
   "action": {
-    "default_title": "Toggle Sys2Path Sidebar"
+    "default_title": "Sys2Path Settings",
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js",
@@ -42,7 +43,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["sidebar.html", "sidebar.js", "sidebar.css", "dashboard.html", "dashboard.js", "dashboard.css"],
+      "resources": ["sidebar.html", "sidebar.js", "sidebar.css", "dashboard.html", "dashboard.js", "dashboard.css", "popup.html", "popup.js", "popup.css"],
       "matches": ["<all_urls>"]
     }
   ]

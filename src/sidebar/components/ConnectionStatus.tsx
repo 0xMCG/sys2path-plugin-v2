@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
 import { API_CONFIG } from '../../config/api';
+import { configService } from '../../services/config-service';
 
 type ConnectionStatus = 'connected' | 'disconnected';
 
@@ -10,6 +11,7 @@ export const ConnectionStatus: React.FC = () => {
   const consecutiveFailuresRef = useRef(0);
   const isCheckingRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const configRef = useRef<string>('');
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -20,14 +22,19 @@ export const ConnectionStatus: React.FC = () => {
       }
 
       isCheckingRef.current = true;
-      console.log('[CONNECTION] Starting ping check...', `${API_CONFIG.BASE_URL}${API_CONFIG.API_PREFIX}/ping`);
-
+      
       try {
+        const config = await configService.getConfig();
+        const apiUrl = config.apiUrl;
+        configRef.current = apiUrl;
+        const pingUrl = `${apiUrl}${API_CONFIG.API_PREFIX}/ping`;
+        console.log('[CONNECTION] Starting ping check...', pingUrl);
+
         // 使用 AbortController 实现超时，缩短超时时间到1秒
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 1000);
         
-        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.API_PREFIX}/ping`, {
+        const response = await fetch(pingUrl, {
           method: 'GET',
           signal: controller.signal,
           cache: 'no-cache',
@@ -73,15 +80,9 @@ export const ConnectionStatus: React.FC = () => {
       }
     };
 
-    // 根据连续失败次数动态调整检查间隔
+    // 固定检查间隔为5秒
     const getCheckInterval = () => {
-      if (consecutiveFailuresRef.current === 0) {
-        return 120000; // 连接正常时，每2分钟检查一次
-      } else if (consecutiveFailuresRef.current < 3) {
-        return 60000; // 失败1-2次，每1分钟检查一次
-      } else {
-        return 300000; // 连续失败3次以上，每5分钟检查一次
-      }
+      return 5000; // 每5秒检查一次
     };
 
     // 递归调度的检查函数
@@ -115,10 +116,19 @@ export const ConnectionStatus: React.FC = () => {
       });
     }, 1000);
 
+    // 监听配置变更，立即重新检查
+    const removeListener = configService.addListener((config) => {
+      if (config.apiUrl !== configRef.current) {
+        configRef.current = config.apiUrl;
+        checkConnection();
+      }
+    });
+
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      removeListener();
     };
   }, []);
 
@@ -142,7 +152,7 @@ export const ConnectionStatus: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center justify-center">
+    <div className="flex items-center justify-start">
       {getStatusDisplay()}
     </div>
   );

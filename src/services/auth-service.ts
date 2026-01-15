@@ -16,10 +16,10 @@ class AuthService {
    * 打开OAuth登录popup窗口
    */
   async login(provider: OAuthProvider): Promise<AuthState> {
+    // 获取登录URL
+    const loginUrl = await apiService.getOAuthLoginUrl(provider);
+    
     return new Promise((resolve, reject) => {
-      // 获取登录URL
-      const loginUrl = apiService.getOAuthLoginUrl(provider);
-
       // 打开popup窗口
       this.popup = window.open(
         loginUrl,

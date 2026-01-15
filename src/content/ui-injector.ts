@@ -9,15 +9,25 @@ let overlayWidgetInjected = false;
 let currentState: WidgetState = 'idle';
 
 /**
+ * Reset overlay widget injected flag (used when widget is removed)
+ */
+export function resetOverlayWidgetInjected(): void {
+  overlayWidgetInjected = false;
+}
+
+/**
  * Inject overlay widget (FAB button)
  */
 export function injectOverlayWidget(onClick: () => void, isSidebarOpen: boolean = false, sidebarWidth: number = 450): void {
-  if (overlayWidgetInjected) {
+  // Check if widget actually exists in DOM, if not reset the flag
+  const existingWidget = document.getElementById('sys2path-overlay-widget');
+  if (!existingWidget && overlayWidgetInjected) {
+    overlayWidgetInjected = false;
+  }
+
+  if (overlayWidgetInjected && existingWidget) {
     // Update position if sidebar state changed
-    const widget = document.getElementById('sys2path-overlay-widget');
-    if (widget) {
-      widget.style.right = isSidebarOpen ? `${sidebarWidth + 24}px` : '24px';
-    }
+    existingWidget.style.right = isSidebarOpen ? `${sidebarWidth + 24}px` : '24px';
     return;
   }
 

@@ -18,19 +18,8 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// Handle extension icon click
-chrome.action.onClicked.addListener((tab) => {
-  if (!tab.id) return;
-  
-  console.log('[BACKGROUND] Extension icon clicked');
-  
-  // Send message to content script to toggle sidebar
-  chrome.tabs.sendMessage(tab.id, {
-    type: 'EXTENSION_ICON_CLICKED'
-  }).catch((error) => {
-    console.error('[BACKGROUND] Failed to send message to content script:', error);
-  });
-});
+// Note: Extension icon click now opens popup (configured in manifest.json)
+// No need to handle chrome.action.onClicked when popup is set
 
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

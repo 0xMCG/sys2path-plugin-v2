@@ -6,7 +6,8 @@
 import { PlatformDetector } from '../services/platform-detector';
 import { ChatLLMCapture } from './capture/chatllm';
 import { GeneralPageCapture } from './capture/general';
-import { injectOverlayWidget, injectToggleButton, updateToggleButton, updateOverlayWidgetState, updateOverlayWidgetPosition } from './ui-injector';
+import { injectOverlayWidget, injectToggleButton, updateToggleButton, updateOverlayWidgetState, updateOverlayWidgetPosition, resetOverlayWidgetInjected } from './ui-injector';
+import { configService } from '../services/config-service';
 
 let sidebarInjected = false;
 let sidebarContainer: HTMLElement | null = null;
@@ -328,6 +329,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
 
+    case 'TOGGLE_OVERLAY_WIDGET':
+      handleOverlayWidgetToggle(message.enabled);
+      sendResponse({ success: true });
+      break;
+
     default:
       sendResponse({ success: false, error: 'Unknown message type' });
   }
@@ -367,17 +373,47 @@ window.addEventListener('message', async (event: MessageEvent) => {
   }
 });
 
+// Handle overlay widget toggle
+async function handleOverlayWidgetToggle(enabled: boolean): Promise<void> {
+  if (enabled) {
+    // Check if widget already exists
+    const existingWidget = document.getElementById('sys2path-overlay-widget');
+    if (!existingWidget) {
+      // Inject overlay widget if not already injected
+      injectOverlayWidget(() => {
+        console.log('[CONTENT] Overlay widget clicked - capturing data');
+        handleCapture();
+      }, isSidebarOpen, sidebarWidth);
+    } else {
+      // Widget exists, just make sure it's visible
+      existingWidget.style.display = 'flex';
+    }
+  } else {
+    // Remove overlay widget
+    const widget = document.getElementById('sys2path-overlay-widget');
+    if (widget) {
+      widget.remove();
+      // Reset the injected flag so it can be re-injected later
+      resetOverlayWidgetInjected();
+    }
+  }
+}
+
 // Initialize UI and capture
 async function initializeUI(): Promise<void> {
   // Load saved width
   sidebarWidth = await loadSidebarWidth();
 
-  // Inject overlay widget - only capture, don't toggle sidebar
-  injectOverlayWidget(() => {
-    console.log('[CONTENT] Overlay widget clicked - capturing data');
-    handleCapture();
-    // Don't automatically open sidebar - let user open it manually if needed
-  }, false, sidebarWidth);
+  // Load overlay widget config
+  const config = await configService.getConfig();
+  if (config.overlayWidgetEnabled) {
+    // Inject overlay widget - only capture, don't toggle sidebar
+    injectOverlayWidget(() => {
+      console.log('[CONTENT] Overlay widget clicked - capturing data');
+      handleCapture();
+      // Don't automatically open sidebar - let user open it manually if needed
+    }, false, sidebarWidth);
+  }
 
   // Inject toggle button
   injectToggleButton(() => {
@@ -387,6 +423,11 @@ async function initializeUI(): Promise<void> {
 
   // Initialize capture
   initCapture();
+
+  // Listen for config changes
+  configService.addListener((config) => {
+    handleOverlayWidgetToggle(config.overlayWidgetEnabled);
+  });
 }
 
 

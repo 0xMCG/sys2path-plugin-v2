@@ -56,6 +56,39 @@ export default defineConfig({
           console.log('✅ Copied and fixed dashboard.html')
         }
 
+        // Copy popup HTML and fix paths
+        const popupHtmlPaths = [
+          'dist/src/popup/index.html',
+          'dist/assets/popup.html',
+          'dist/popup.html'
+        ]
+        let popupHtmlPath = popupHtmlPaths.find(path => existsSync(path))
+        if (popupHtmlPath && popupHtmlPath !== 'dist/popup.html') {
+          copyFileSync(popupHtmlPath, 'dist/popup.html')
+          let popupContent = readFileSync('dist/popup.html', 'utf8')
+          // Fix script and style paths
+          popupContent = popupContent.replace(/src="\/popup\.js"/g, 'src="./popup.js"')
+          popupContent = popupContent.replace(/href="\/assets\/([^"]+)\.css"/g, 'href="./assets/$1.css"')
+          popupContent = popupContent.replace(/href="\.\/popup\.css"/g, 'href="./popup.css"')
+          // Fix chunk paths
+          popupContent = popupContent.replace(/src="\/chunks\//g, 'src="./chunks/')
+          popupContent = popupContent.replace(/href="\/chunks\//g, 'href="./chunks/')
+          writeFileSync('dist/popup.html', popupContent)
+          console.log('✅ Copied and fixed popup.html')
+        }
+
+        // Copy popup.css if it exists
+        const popupCssPaths = [
+          'dist/src/popup/popup.css',
+          'dist/assets/popup.css',
+          'dist/popup.css'
+        ]
+        let popupCssPath = popupCssPaths.find(path => existsSync(path))
+        if (popupCssPath && popupCssPath !== 'dist/popup.css') {
+          copyFileSync(popupCssPath, 'dist/popup.css')
+          console.log('✅ Copied popup.css')
+        }
+
         // No cleanup needed - all files are now in IIFE format
 
         // Update manifest.json web accessible resources
@@ -70,7 +103,10 @@ export default defineConfig({
               'sidebar.css',
               'dashboard.html',
               'dashboard.js',
-              'dashboard.css'
+              'dashboard.css',
+              'popup.html',
+              'popup.js',
+              'popup.css'
             ]
           }
           
@@ -85,7 +121,8 @@ export default defineConfig({
       input: {
         background: resolve(__dirname, 'src/background/background.ts'),
         sidebar: resolve(__dirname, 'src/sidebar/index.html'),
-        dashboard: resolve(__dirname, 'src/dashboard/index.html')
+        dashboard: resolve(__dirname, 'src/dashboard/index.html'),
+        popup: resolve(__dirname, 'src/popup/index.html')
         // Note: content.js is built separately as IIFE (see build-content.js)
       },
       output: {
@@ -97,6 +134,9 @@ export default defineConfig({
           }
           if (chunkInfo.name === 'dashboard') {
             return 'dashboard.js'
+          }
+          if (chunkInfo.name === 'popup') {
+            return 'popup.js'
           }
           return '[name].js'
         },
