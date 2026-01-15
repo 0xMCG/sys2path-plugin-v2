@@ -30,9 +30,9 @@ export const ConnectionStatus: React.FC = () => {
         const pingUrl = `${apiUrl}${API_CONFIG.API_PREFIX}/ping`;
         console.log('[CONNECTION] Starting ping check...', pingUrl);
 
-        // 使用 AbortController 实现超时，缩短超时时间到1秒
+        // 使用 AbortController 实现超时，增加到5秒以适应网络延迟和服务器负载
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         
         const response = await fetch(pingUrl, {
           method: 'GET',
@@ -53,27 +53,39 @@ export const ConnectionStatus: React.FC = () => {
           if (data.status === 'ok') {
             console.log('[CONNECTION] Setting status to: connected');
             setStatus('connected');
-            consecutiveFailuresRef.current = 0;
+            consecutiveFailuresRef.current = 0; // 成功即重置失败计数
             console.log('[CONNECTION] Status updated successfully to connected');
           } else {
-            console.log('[CONNECTION] Data status is not "ok", setting to disconnected. Status value:', data.status);
-            setStatus('disconnected');
+            // 服务器返回非ok状态，计入失败计数
+            console.log('[CONNECTION] Data status is not "ok", incrementing failure count. Status value:', data.status);
             consecutiveFailuresRef.current++;
+            // 只有连续失败5次（25秒）才标记为disconnected
+            if (consecutiveFailuresRef.current >= 5) {
+              setStatus('disconnected');
+            }
           }
         } else {
-          console.log('[CONNECTION] Response not ok, setting to disconnected. Status:', response.status);
-          setStatus('disconnected');
+          // HTTP错误，计入失败计数
+          console.log('[CONNECTION] Response not ok, incrementing failure count. Status:', response.status);
           consecutiveFailuresRef.current++;
+          // 只有连续失败5次（25秒）才标记为disconnected
+          if (consecutiveFailuresRef.current >= 5) {
+            setStatus('disconnected');
+          }
         }
       } catch (error: any) {
         // 详细记录错误信息
         console.log('[CONNECTION] Ping check failed:', error?.message || error);
         console.log('[CONNECTION] Error type:', error?.name, 'Error details:', error);
         if (error.name === 'AbortError') {
-          console.log('[CONNECTION] Request was aborted (timeout)');
+          console.log('[CONNECTION] Request was aborted (timeout) - this may be due to network delay or server load');
         }
-        setStatus('disconnected');
+        // 所有错误都计入失败计数，但不立即标记为disconnected
         consecutiveFailuresRef.current++;
+        // 只有连续失败5次（25秒）才标记为disconnected
+        if (consecutiveFailuresRef.current >= 5) {
+          setStatus('disconnected');
+        }
       } finally {
         isCheckingRef.current = false;
         console.log('[CONNECTION] Check completed. Current status:', status, 'Consecutive failures:', consecutiveFailuresRef.current);

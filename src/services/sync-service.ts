@@ -146,6 +146,7 @@ export async function syncServerSessions(): Promise<DataSource[]> {
       if (!processedLocalIds.has(localDataSource.id)) {
         syncedDataSources.push({
           ...localDataSource,
+          isUploaded: false, // 明确设置为false，确保显示LOCAL状态
           isServerOnly: false
         });
       }

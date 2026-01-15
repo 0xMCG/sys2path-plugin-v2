@@ -8,6 +8,15 @@ import { authService, type AuthState } from '../../services/auth-service';
 import type { Message, PromptResponse, DataSource } from '../../types';
 import type { ChatLLMPlatform } from '../../types/capture';
 import type { MVGResponse, RelevantSessionsResponse } from '../../types/api';
+import type { ChatLLMConversation, GeneralPageContent } from '../../types/capture';
+
+interface ChatState {
+  messages: Message[];
+  mvgData: MVGResponse | null;
+  relevantSessions: RelevantSessionsResponse[];
+  structuredOutput: string | null;
+  highlightedNode: string | null;
+}
 
 export const FullscreenWorkbench: React.FC = () => {
   // --- Layout State ---
@@ -41,6 +50,12 @@ export const FullscreenWorkbench: React.FC = () => {
   const [selectedDataIds, setSelectedDataIds] = useState<Set<string>>(new Set());
   const [previewDataId, setPreviewDataId] = useState<string | null>(null);
   
+  // Preview content state
+  const [previewContent, setPreviewContent] = useState<ChatLLMConversation | GeneralPageContent | null>(null);
+  const [previewContentOld, setPreviewContentOld] = useState<ChatLLMConversation | GeneralPageContent | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  
   // Upload status management
   const [uploadStatuses, setUploadStatuses] = useState<Map<string, {
     status: 'idle' | 'uploading' | 'success' | 'failed';
@@ -59,11 +74,46 @@ export const FullscreenWorkbench: React.FC = () => {
   const replyInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
 
-  // Load auth state
+  // Load auth state and restore chat state
   useEffect(() => {
-    authService.getAuthState().then(state => {
+    const loadInitialState = async () => {
+      // Load auth state
+      const state = await authService.getAuthState();
       setAuthState(state);
-    });
+      
+      // Restore chat state from storage
+      try {
+        const { apiService: apiServiceInstance } = await import('../../services/api');
+        const userInfo = await apiServiceInstance.getUserInfo();
+        const userId = (userInfo && typeof userInfo === 'object' && 'id' in userInfo && userInfo.id) 
+          ? userInfo.id as number 
+          : null;
+        
+        const storageKey = userId !== null 
+          ? `sys2path_chat_state_user_${userId}` 
+          : 'sys2path_chat_state';
+        
+        const result = await chrome.storage.local.get(storageKey);
+        const chatState = result[storageKey] as ChatState | undefined;
+        
+        if (chatState) {
+          console.log('[DASHBOARD] Restoring chat state from storage');
+          setMessages(chatState.messages || []);
+          setMvgData(chatState.mvgData || null);
+          setRelevantSessions(chatState.relevantSessions || []);
+          setStructuredOutput(chatState.structuredOutput || null);
+          setHighlightedNode(chatState.highlightedNode || null);
+          
+          // Clear saved state after restoring
+          await chrome.storage.local.remove(storageKey);
+          console.log('[DASHBOARD] Chat state restored and cleared');
+        }
+      } catch (error) {
+        console.error('[DASHBOARD] Failed to restore chat state:', error);
+      }
+    };
+    
+    loadInitialState();
   }, []);
 
   // Load data sources
@@ -82,6 +132,117 @@ export const FullscreenWorkbench: React.FC = () => {
       setActivatedDataIds(ids);
     });
   }, [refreshDataSources]);
+
+  // Load preview content when previewDataId changes
+  useEffect(() => {
+    if (!previewDataId) {
+      setPreviewContent(null);
+      setPreviewContentOld(null);
+      setPreviewError(null);
+      return;
+    }
+
+    const loadPreviewContent = async () => {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      
+      try {
+        const dataSource = dataSources.find(d => d.id === previewDataId);
+        if (!dataSource) {
+          setPreviewError('Data source not found');
+          setPreviewLoading(false);
+          return;
+        }
+
+        // If there are 2 versions, load both for diff comparison
+        if (dataSource.versions.length === 2) {
+          const [uploadedVersion, localVersion] = dataSource.versions;
+          
+          // Load both versions
+          let newContent: ChatLLMConversation | GeneralPageContent | null = null;
+          let oldContent: ChatLLMConversation | GeneralPageContent | null = null;
+          
+          // Try to load as conversations
+          const newConv = await StorageService.getConversation(localVersion.id);
+          const oldConv = await StorageService.getConversation(uploadedVersion.id);
+          
+          if (newConv && oldConv) {
+            newContent = newConv;
+            oldContent = oldConv;
+          } else {
+            // Try to load as page contents
+            const newPage = await StorageService.getPageContent(localVersion.id);
+            const oldPage = await StorageService.getPageContent(uploadedVersion.id);
+            
+            if (newPage && oldPage) {
+              newContent = newPage;
+              oldContent = oldPage;
+            }
+          }
+          
+          if (newContent && oldContent) {
+            setPreviewContent(newContent);
+            setPreviewContentOld(oldContent);
+            setPreviewLoading(false);
+            return;
+          }
+        }
+        
+        // Single version or fallback: load current version only
+        const conversation = await StorageService.getConversation(dataSource.currentVersionId);
+        if (conversation) {
+          setPreviewContent(conversation);
+          setPreviewContentOld(null);
+          setPreviewLoading(false);
+          return;
+        }
+        
+        const pageContent = await StorageService.getPageContent(dataSource.currentVersionId);
+        if (pageContent) {
+          setPreviewContent(pageContent);
+          setPreviewContentOld(null);
+          setPreviewLoading(false);
+          return;
+        }
+        
+        // Try to find by base ID if version ID doesn't match
+        const allConversations = await StorageService.getAllConversations();
+        const matchingConv = allConversations.find(c => {
+          const baseId = c.id.split('-').slice(0, -1).join('-') || c.id;
+          return baseId === previewDataId;
+        });
+        
+        if (matchingConv) {
+          setPreviewContent(matchingConv);
+          setPreviewContentOld(null);
+          setPreviewLoading(false);
+          return;
+        }
+        
+        const allPageContents = await StorageService.getAllPageContents();
+        const matchingPage = allPageContents.find(c => {
+          const baseId = c.id.split('-').slice(0, -1).join('-') || c.id;
+          return baseId === previewDataId;
+        });
+        
+        if (matchingPage) {
+          setPreviewContent(matchingPage);
+          setPreviewContentOld(null);
+          setPreviewLoading(false);
+          return;
+        }
+        
+        setPreviewError('Content not found in storage');
+        setPreviewLoading(false);
+      } catch (error) {
+        console.error('[DASHBOARD] Failed to load preview content:', error);
+        setPreviewError(error instanceof Error ? error.message : 'Failed to load content');
+        setPreviewLoading(false);
+      }
+    };
+
+    loadPreviewContent();
+  }, [previewDataId, dataSources]);
 
   // Load activated sources CKG
   const loadActivatedSourcesCKG = useCallback(async () => {
@@ -405,6 +566,10 @@ export const FullscreenWorkbench: React.FC = () => {
             highlightedNode={highlightedNode}
             uploadStatuses={uploadStatuses}
             previewDataId={previewDataId}
+            previewContent={previewContent}
+            previewContentOld={previewContentOld}
+            previewLoading={previewLoading}
+            previewError={previewError}
             onDataFilterChange={setDataFilter}
             onPlatformFilterChange={setPlatformFilter}
             onSearchQueryChange={setSearchQuery}
@@ -425,6 +590,12 @@ export const FullscreenWorkbench: React.FC = () => {
             onPreviewClick={setPreviewDataId}
             onDeleteClick={handleDeleteClick}
             onGraphNodeClick={handleGraphNodeClick}
+            onClosePreview={() => {
+              setPreviewDataId(null);
+              setPreviewContent(null);
+              setPreviewContentOld(null);
+              setPreviewError(null);
+            }}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-slate-400 text-lg">

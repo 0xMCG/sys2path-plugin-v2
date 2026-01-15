@@ -29,9 +29,9 @@ export function useConnectionStatus(): ConnectionStatus {
         const pingUrl = `${apiUrl}${API_CONFIG.API_PREFIX}/ping`;
         console.log('[CONNECTION] Starting ping check...', pingUrl);
 
-        // 使用 AbortController 实现超时，缩短超时时间到1秒
+        // 使用 AbortController 实现超时，增加到5秒以适应网络延迟和服务器负载
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         
         const response = await fetch(pingUrl, {
           method: 'GET',
@@ -47,19 +47,34 @@ export function useConnectionStatus(): ConnectionStatus {
           
           if (data.status === 'ok') {
             setStatus('connected');
-            consecutiveFailuresRef.current = 0;
+            consecutiveFailuresRef.current = 0; // 成功即重置失败计数
           } else {
-            setStatus('disconnected');
+            // 服务器返回非ok状态，计入失败计数
             consecutiveFailuresRef.current++;
+            // 只有连续失败5次（25秒）才标记为disconnected
+            if (consecutiveFailuresRef.current >= 5) {
+              setStatus('disconnected');
+            }
           }
         } else {
-          setStatus('disconnected');
+          // HTTP错误，计入失败计数
           consecutiveFailuresRef.current++;
+          // 只有连续失败5次（25秒）才标记为disconnected
+          if (consecutiveFailuresRef.current >= 5) {
+            setStatus('disconnected');
+          }
         }
       } catch (error: any) {
         console.log('[CONNECTION] Ping check failed:', error?.message || error);
-        setStatus('disconnected');
+        if (error.name === 'AbortError') {
+          console.log('[CONNECTION] Request was aborted (timeout) - this may be due to network delay or server load');
+        }
+        // 所有错误都计入失败计数，但不立即标记为disconnected
         consecutiveFailuresRef.current++;
+        // 只有连续失败5次（25秒）才标记为disconnected
+        if (consecutiveFailuresRef.current >= 5) {
+          setStatus('disconnected');
+        }
       } finally {
         isCheckingRef.current = false;
       }

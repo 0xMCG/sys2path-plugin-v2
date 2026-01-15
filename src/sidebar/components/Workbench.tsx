@@ -1717,7 +1717,7 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                               : 'border-slate-200 hover:border-indigo-300'
                           }`}
                         >
-                            <div className="flex items-start gap-3 mb-2">
+                            <div className="flex items-start gap-3 mb-2 relative">
                                 <input 
                                   type="checkbox" 
                                   checked={selectedDataIds.has(ds.id)}
@@ -1828,6 +1828,36 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                                       return null;
                                     })()}
                                 </div>
+                                
+                                {/* Activation button - positioned on the right center */}
+                                {ds.isUploaded && (
+                                  <div className="flex items-center h-full self-center">
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleActivation(ds.id);
+                                      }}
+                                      className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
+                                        isActivated 
+                                          ? 'bg-green-500 text-white border-2 border-green-600 hover:bg-green-600 shadow-md' 
+                                          : 'bg-white text-slate-600 border-2 border-slate-300 hover:border-green-400 hover:text-green-600 hover:bg-green-50 shadow-sm'
+                                      }`}
+                                      title={isActivated ? "Deactivate" : "Activate for CKG filtering"}
+                                    >
+                                      {isActivated ? (
+                                        <>
+                                          <Power size={18} className="fill-current" />
+                                          <span className="text-xs font-semibold">ON</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <PowerOff size={18} />
+                                          <span className="text-xs font-semibold">OFF</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
                             </div>
                             
                             <div className="flex items-center justify-end mt-3 pt-2 border-t border-slate-50 pl-7">
@@ -1877,23 +1907,6 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
                                         title={(ds.versions.length === 1 && ds.isUploaded && !ds.versions.some(v => !v.status || v.status === 'local')) ? "Already Synced" : "Upload to Server"}
                                       >
                                           <Cloud size={14} />
-                                      </button>
-                                    )}
-                                    {/* Activation button - only show for uploaded data sources */}
-                                    {ds.isUploaded && (
-                                      <button 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleToggleActivation(ds.id);
-                                        }}
-                                        className={`p-1 rounded transition-colors ${
-                                          isActivated 
-                                            ? 'text-green-600 bg-green-50 hover:bg-green-100' 
-                                            : 'text-slate-500 hover:bg-slate-100 hover:text-green-600'
-                                        }`}
-                                        title={isActivated ? "Deactivate" : "Activate for CKG filtering"}
-                                      >
-                                        {isActivated ? <Power size={14} className="fill-current" /> : <PowerOff size={14} />}
                                       </button>
                                     )}
                                     <button 
@@ -2069,6 +2082,13 @@ export const Workbench: React.FC<WorkbenchProps> = () => {
            activeTab={activePrimaryTab}
            onTabChange={handleTabChange}
            onAuthChange={setAuthState}
+           getChatState={() => ({
+             messages,
+             mvgData,
+             relevantSessions,
+             structuredOutput,
+             highlightedNode
+           })}
          />
          <div className="flex-1 overflow-hidden relative flex flex-col" style={{ pointerEvents: 'auto' }}>
             {activePrimaryTab === 'chat' ? (

@@ -4,16 +4,26 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { AuthButton } from './AuthButton';
 import type { AuthState } from '../../services/auth-service';
 
+interface ChatState {
+  messages: any[];
+  mvgData: any | null;
+  relevantSessions: any[];
+  structuredOutput: string | null;
+  highlightedNode: string | null;
+}
+
 interface PrimaryHeaderProps {
   activeTab: 'chat' | 'data' | 'history';
   onTabChange: (tab: 'chat' | 'data' | 'history') => void;
   onAuthChange: (authState: AuthState) => void;
+  getChatState?: () => ChatState | null;
 }
 
 export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({ 
   activeTab, 
   onTabChange,
-  onAuthChange
+  onAuthChange,
+  getChatState
 }) => {
   const handleChatClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -36,13 +46,38 @@ export const PrimaryHeader = React.memo<PrimaryHeaderProps>(({
     onTabChange('history');
   }, [onTabChange]);
 
-  const handleOpenDashboard = useCallback((e: React.MouseEvent) => {
+  const handleOpenDashboard = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     console.log('[WORKBENCH] Open dashboard clicked');
+    
+    // Save chat state before opening dashboard
+    if (getChatState) {
+      const chatState = getChatState();
+      if (chatState) {
+        try {
+          // Get user ID for storage key isolation
+          const userInfoResult = await chrome.storage.local.get('sys2path_user_info');
+          const userInfo = userInfoResult.sys2path_user_info;
+          const userId = (userInfo && typeof userInfo === 'object' && 'id' in userInfo && userInfo.id) 
+            ? userInfo.id as number 
+            : null;
+          
+          const storageKey = userId !== null 
+            ? `sys2path_chat_state_user_${userId}` 
+            : 'sys2path_chat_state';
+          
+          await chrome.storage.local.set({ [storageKey]: chatState });
+          console.log('[WORKBENCH] Chat state saved to storage:', storageKey);
+        } catch (error) {
+          console.error('[WORKBENCH] Failed to save chat state:', error);
+        }
+      }
+    }
+    
     const url = chrome.runtime.getURL('dashboard.html');
     chrome.tabs.create({ url });
-  }, []);
+  }, [getChatState]);
 
   return (
     <div className="h-14 border-b border-slate-200 flex items-center justify-between px-4 bg-white shrink-0 z-50 relative" style={{ pointerEvents: 'auto' }}>
